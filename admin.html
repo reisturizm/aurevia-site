@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aurevia Admin Panel</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page-id="admin">
+
+<div data-require-admin></div>
+<header class="site-header"><div class="container"><div class="nav">
+  <a class="brand" href="index.html"><span data-site-logo><span class="mark">A</span></span><span data-site-name>Aurevia</span> <span style="color:var(--gold2)">Admin</span></a>
+  <div class="nav-actions"><a class="btn btn-dark" href="index.html">Siteye Dön</a><a class="btn btn-gold" href="#" data-logout>Çıkış Yap</a></div>
+</div></div></header>
+
+<section class="page-hero"><div class="container topbar">
+  <div><div class="eyebrow">Genel admin paneli</div><h2>Hoş geldiniz, <span class="gold" data-session-name>Admin</span></h2>
+  <p class="lead">Kullanıcılar, paketler, siparişler, bakiye talepleri, mesajlar ve site içeriğini tek yerden yönetebilirsin.</p></div>
+  <div class="notice"><div><strong data-session-email></strong></div><div class="small">Rol: Admin</div></div>
+</div></section>
+
+<section class="panel-layout"><div class="container panel-grid">
+  <aside class="sidebar">
+    <h3>Menü</h3>
+    <div class="menu" data-tab-scope="admin-tabs">
+      <a href="#" class="active" data-tab-btn="overview">Genel Bakış</a>
+      <a href="#" data-tab-btn="users">Kullanıcılar</a>
+      <a href="#" data-tab-btn="orders">Siparişler</a>
+      <a href="#" data-tab-btn="packages">Paketler</a>
+      <a href="#" data-tab-btn="payments">Ödemeler</a>
+      <a href="#" data-tab-btn="profileReqs">Profil Talepleri</a>
+      <a href="#" data-tab-btn="messages">Mesajlar <span class="notify-pill" data-admin-unread style="display:none">0</span></a>
+      <a href="#" data-tab-btn="admins">Adminler</a>
+      <a href="#" data-tab-btn="settings">Ayarlar</a>
+    </div>
+  </aside>
+
+  <div class="main admin-tabs-content">
+    <section class="panel-section active" data-tab-section="overview">
+      <h3>Genel Bakış</h3>
+      <div class="panel-cards">
+        <div class="panel-block"><div class="small">Toplam müşteri</div><div class="kpi" id="adminCustomerCount">0</div><span class="badge ok">aktif kullanıcılar</span></div>
+        <div class="panel-block"><div class="small">Admin hesabı</div><div class="kpi" id="adminAdminCount">0</div><span class="badge warn">yönetici</span></div>
+        <div class="panel-block"><div class="small">Müşteri bakiyesi</div><div class="kpi" id="adminTotalBalance">₺0</div><span class="badge ok">toplam bakiye</span></div>
+        <div class="panel-block"><div class="small">Bekleyen talepler</div><div class="kpi" id="adminPendingRequests">0</div><span class="badge off">işlem bekliyor</span></div>
+      </div>
+    </section>
+
+    <section class="panel-section" data-tab-section="users">
+      <h3>Kullanıcı Yönetimi</h3>
+      <div id="usersList" class="list-stack"></div>
+    </section>
+
+    <section class="panel-section" data-tab-section="orders">
+      <h3>Siparişler</h3>
+      <div class="panel-block" style="margin-bottom:16px">
+        <form id="adminOrderForm" class="inline-form">
+          <select name="customer"></select>
+          <select name="packageName"></select>
+          <button class="btn btn-gold" type="submit">Sipariş Ekle</button>
+        <div id="adminChatStatus" class="msg" style="margin-top:10px"></div></form>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Müşteri</th><th>Paket</th><th>Tutar</th><th>Durum</th><th>Aşama</th><th>Tarih</th><th>İşlem</th></tr></thead>
+          <tbody id="ordersTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel-section" data-tab-section="packages">
+      <h3>Paketler</h3>
+      <div class="panel-block" style="margin-bottom:16px">
+        <form id="packageCreateForm" class="cms-grid">
+          <div class="field"><label>Paket adı</label><input name="name" placeholder="Paket adı" required /></div>
+          <div class="field"><label>Fiyat</label><input name="price" type="number" min="1" placeholder="Fiyat" required /></div>
+          <div class="field" style="grid-column:1/-1"><label>Açıklama</label><input name="description" placeholder="Açıklama" required /></div>
+          <div class="field"><label>Sunum Başlığı</label><input name="reviewTitle" placeholder="Sunum başlığı" /></div>
+          <div class="field"><label>Sunum Metni</label><input name="reviewText" placeholder="Sunum metni" /></div>
+          <div class="field"><label>Resim URL</label><input name="mediaImageUrl" placeholder="https://..." /></div>
+          <div class="field"><label>Video URL</label><input name="mediaVideoUrl" placeholder="https://..." /></div>
+          <div class="upload-box"><label>Dosyadan Resim</label><input type="file" name="mediaImageFile" accept="image/*" /><div id="pkgCreateImageUploadInfo" class="pending-file"></div><div id="pkgCreateImageUploadInfoBar" class="progress-bar"><i></i></div></div>
+          <div class="upload-box"><label>Dosyadan Video</label><input type="file" name="mediaVideoFile" accept="video/*" /><div id="pkgCreateVideoUploadInfo" class="pending-file"></div><div id="pkgCreateVideoUploadInfoBar" class="progress-bar"><i></i></div></div>
+          <div><button class="btn btn-gold" type="submit">Paket Ekle</button></div>
+        </form>
+      </div>
+      <div id="packagesList" class="list-stack"></div>
+      <div class="panel-block" style="margin-top:16px">
+        <h3>Paket Sunumu Düzenle</h3>
+        <input type="hidden" id="pkgShowcaseTarget" />
+        <form id="pkgShowcaseForm" class="cms-grid">
+          <div class="field"><label>Başlık</label><input name="reviewTitle" /></div>
+          <div class="field" style="grid-column:1/-1"><label>Metin</label><textarea class="big" name="reviewText"></textarea></div>
+          <div class="field"><label>Resim URL</label><input name="mediaImage" placeholder="https://..." /></div>
+          <div class="field"><label>Video URL</label><input name="mediaVideo" placeholder="https://..." /></div>
+          <div class="upload-box"><label>Dosyadan Resim Yükle</label><input type="file" name="mediaImageFile" accept="image/*" /><div id="pkgImageUploadInfo" class="pending-file"></div><div id="pkgImageUploadInfoBar" class="progress-bar"><i></i></div></div>
+          <div class="upload-box"><label>Dosyadan Video Yükle</label><input type="file" name="mediaVideoFile" accept="video/*" /><div id="pkgVideoUploadInfo" class="pending-file"></div><div id="pkgVideoUploadInfoBar" class="progress-bar"><i></i></div></div>
+          <div><button class="btn btn-gold" type="submit">Paket Sunumunu Kaydet</button></div>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel-section" data-tab-section="payments">
+      <h3>Ödemeler / Bakiye Talepleri</h3>
+      <div id="requestList" class="list-stack"></div>
+    </section>
+
+    <section class="panel-section" data-tab-section="profileReqs">
+      <h3>Profil Güncelleme Talepleri</h3>
+      <div id="profileRequestsList" class="list-stack"></div>
+    </section>
+
+    <section class="panel-section" data-tab-section="messages">
+      <h3>Admin ile Online Mesaj</h3>
+      <div class="chat-wrap">
+        <div class="message-box">
+          <div id="chatUsers" class="list-stack"></div>
+        </div>
+        <div class="message-box chat-panel">
+          <div id="chatMessages" class="chat-list"></div>
+          <form id="adminChatForm" class="chat-input-box">
+            <label class="small" style="display:block;margin-bottom:6px">Kullanıcı Seç</label><select id="adminChatTargetSelect" name="targetSelect" style="margin-bottom:10px;width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text)"></select>
+            <textarea name="text" placeholder="Mesaj yaz..." rows="5" style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text)"></textarea>
+            <button class="btn btn-gold" type="submit" style="margin-top:10px">Gönder</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+
+    <section class="panel-section" data-tab-section="admins">
+      <h3>Admin Yönetimi</h3>
+
+      <div class="creds-box" style="margin-bottom:16px">
+        <h3>Kendi Admin Giriş Bilgilerim</h3>
+        <form id="ownAdminForm" class="cms-grid">
+          <div class="field"><label>Ad Soyad</label><input name="currentName" /></div>
+          <div class="field"><label>E-posta</label><input name="currentEmail" type="email" /></div>
+          <div class="field"><label>Yeni Şifre</label><input name="currentPassword" type="password" placeholder="Değiştirmek istemiyorsan boş bırak" /></div>
+          <div><button class="btn btn-gold" type="submit">Admin Bilgilerimi Kaydet</button></div>
+        </form>
+        <div id="ownAdminMsg" class="msg"></div>
+      </div>
+
+      <div class="panel-block" style="margin-bottom:16px">
+        <form id="addAdminForm" class="cms-grid">
+          <div class="field"><label>Ad Soyad</label><input name="name" required /></div>
+          <div class="field"><label>E-posta</label><input name="email" type="email" required /></div>
+          <div class="field"><label>Telefon</label><input name="phone" /></div>
+          <div class="field"><label>Şirket</label><input name="company" /></div>
+          <div class="field"><label>Şifre</label><input name="password" type="password" required /></div>
+          <div><button class="btn btn-gold" type="submit">Yeni Admin Ekle</button></div>
+        </form>
+        <div id="addAdminMsg" class="msg"></div>
+      </div>
+      <div id="adminAccountsList" class="list-stack"></div>
+    </section>
+
+    <section class="panel-section" data-tab-section="settings">
+      <h3>Ayarlar / İçerik Düzenleme</h3>
+      <div class="panel-block">
+        
+      <div class="panel-block">
+        <form id="settingsForm" class="settings-compact">
+          <div class="field-card">
+            <div class="field"><label>Site Adı</label><input name="siteName" required /></div>
+            <div class="field"><label>Logo URL</label><input name="siteLogo" placeholder="https://..." /></div>
+            <div class="upload-box"><label>Dosyadan Logo Yükle</label><input type="file" name="siteLogoFile" accept="image/*" /><div id="siteLogoPending" class="pending-file"></div><div id="siteLogoPendingBar" class="progress-bar"><i></i></div></div>
+            <div class="field-actions">
+              <button class="btn btn-gold" type="button" onclick="saveSettingsFields('siteName,siteLogo', 'fb-siteName')" data-save-fields="siteName,siteLogo">Site Adını ve Logoyu Kaydet</button>
+              <button class="btn btn-dark" type="button" onclick="restoreSettingsFields('siteName|siteLogo')">Eski Ayara Dön</button>
+            </div>
+          </div>
+
+          <div class="field-card">
+            <div class="field"><label>Temsilci Adı</label><input name="representativeName" required /></div>
+            <div class="field-actions">
+              <button class="btn btn-gold" type="button" onclick="saveSettingsFields('representativeName', 'fb-representativeName')" data-save-fields="representativeName">Temsilciyi Kaydet</button>
+            </div>
+          </div>
+
+          <div class="field-card">
+            <div class="field"><label>İletişim E-postası</label><input name="contactEmail" type="email" required /></div>
+            <div class="field-actions">
+              <button class="btn btn-gold" type="button" onclick="saveSettingsFields('contactEmail', 'fb-contactEmail')" data-save-fields="contactEmail">E-postayı Kaydet</button>
+            </div>
+          </div>
+
+          <div class="field-card">
+            <div class="field"><label>Üst Etiket</label><input name="heroChip" required /></div>
+            <div class="field"><label>Üst Küçük Başlık</label><input name="heroEyebrow" required /></div>
+            <div class="field"><label>Ana Sayfa Başlığı</label><input name="heroTitle" required /></div>
+            <div class="field"><label>Ana Sayfa Açıklaması</label><textarea class="big" name="heroText"></textarea></div>
+            <div class="field"><label>Ana Sayfa Resim URL</label><input name="heroImage" placeholder="https://..." /></div>
+            <div class="field"><label>Ana Sayfa Video URL</label><input name="heroVideo" placeholder="https://..." /></div>
+            <div class="upload-grid">
+              <div class="upload-box"><label>Dosyadan Ana Sayfa Resmi Yükle</label><input type="file" name="heroImageFile" accept="image/*" /><div id="heroImagePending" class="pending-file"></div><div id="heroImagePendingBar" class="progress-bar"><i></i></div><span class="progress-text" id="heroImagePendingProgress"></span></div>
+              <div class="upload-box"><label>Dosyadan Ana Sayfa Videosu Yükle</label><input type="file" name="heroVideoFile" accept="video/*" /><div id="heroVideoPending" class="pending-file"></div><div id="heroVideoPendingBar" class="progress-bar"><i></i></div><span class="progress-text" id="heroVideoPendingProgress"></span></div>
+            </div>
+            <div class="field-actions">
+              <button class="btn btn-gold" type="button" onclick="saveSettingsFields('heroChip,heroEyebrow,heroTitle,heroText,heroImage,heroVideo', 'fb-hero')" data-save-fields="heroChip,heroEyebrow,heroTitle,heroText,heroImage,heroVideo">Ana Sayfayı Kaydet</button>
+              <button class="btn btn-dark" type="button" onclick="restoreSettingsFields('heroChip|heroEyebrow|heroTitle|heroText|heroImage|heroVideo')">Eski Ayara Dön</button>
+              <span class="save-note">Sadece ana sayfa alanları kaydedilir.</span>
+            </div>
+          </div>
+
+          <div class="field-card">
+            <div class="field"><label>Paketler Başlığı</label><input name="pricingTitle" required /></div>
+            <div class="field"><label>Paketler Açıklaması</label><textarea class="big" name="pricingText"></textarea></div>
+            <div class="field"><label>Paketler Resim URL</label><input name="pricingImage" placeholder="https://..." /></div>
+            <div class="field"><label>Paketler Video URL</label><input name="pricingVideo" placeholder="https://..." /></div>
+            <div class="upload-grid">
+              <div class="upload-box"><label>Dosyadan Paketler Resmi Yükle</label><input type="file" name="pricingImageFile" accept="image/*" /><div id="pricingImagePending" class="pending-file"></div><div id="pricingImagePendingBar" class="progress-bar"><i></i></div><span class="progress-text" id="pricingImagePendingProgress"></span></div>
+              <div class="upload-box"><label>Dosyadan Paketler Videosu Yükle</label><input type="file" name="pricingVideoFile" accept="video/*" /><div id="pricingVideoPending" class="pending-file"></div><div id="pricingVideoPendingBar" class="progress-bar"><i></i></div><span class="progress-text" id="pricingVideoPendingProgress"></span></div>
+            </div>
+            <div class="field-actions">
+              <button class="btn btn-gold" type="button" onclick="saveSettingsFields('pricingTitle,pricingText,pricingImage,pricingVideo', 'fb-pricing')" data-save-fields="pricingTitle,pricingText,pricingImage,pricingVideo">Paketler Alanını Kaydet</button>
+              <button class="btn btn-dark" type="button" onclick="restoreSettingsFields('pricingTitle|pricingText|pricingImage|pricingVideo')">Eski Ayara Dön</button>
+              <span class="save-note">Sadece paketler alanı kaydedilir.</span>
+            </div>
+          </div>
+
+          <div class="field-card">
+            <div class="field"><label>Hizmetler Başlığı</label><input name="servicesTitle" required /></div>
+            <div class="field"><label>Hizmetler Açıklaması</label><textarea class="big" name="servicesText"></textarea></div>
+            <div class="field"><label>Hizmetler Resim URL</label><input name="servicesImage" placeholder="https://..." /></div>
+            <div class="field"><label>Hizmetler Video URL</label><input name="servicesVideo" placeholder="https://..." /></div>
+            <div class="upload-grid">
+              <div class="upload-box"><label>Dosyadan Hizmetler Resmi Yükle</label><input type="file" name="servicesImageFile" accept="image/*" /><div id="servicesImagePending" class="pending-file"></div><div id="servicesImagePendingBar" class="progress-bar"><i></i></div><span class="progress-text" id="servicesImagePendingProgress"></span></div>
+              <div class="upload-box"><label>Dosyadan Hizmetler Videosu Yükle</label><input type="file" name="servicesVideoFile" accept="video/*" /><div id="servicesVideoPending" class="pending-file"></div><div id="servicesVideoPendingBar" class="progress-bar"><i></i></div><span class="progress-text" id="servicesVideoPendingProgress"></span></div>
+            </div>
+            <div class="field-actions">
+              <button class="btn btn-gold" type="button" onclick="saveSettingsFields('servicesTitle,servicesText,servicesImage,servicesVideo', 'fb-services')" data-save-fields="servicesTitle,servicesText,servicesImage,servicesVideo">Hizmetler Alanını Kaydet</button>
+              <button class="btn btn-dark" type="button" onclick="restoreSettingsFields('servicesTitle|servicesText|servicesImage|servicesVideo')">Eski Ayara Dön</button>
+              <span class="save-note">Sadece hizmetler alanı kaydedilir.</span>
+            </div>
+          </div>
+        </form>
+        
+          <div class="field-card">
+            <div class="settings-section-title">Sayfa Arka Plan Ayarları</div>
+            <div class="page-bg-grid">
+              <div class="upload-box"><label>Ana Sayfa</label><input name="bg_home" placeholder="URL" /><input type="file" name="bgHomeFile" accept="image/*" /><div id="bgHomePending" class="pending-file"></div><div id="bgHomePendingBar" class="progress-bar"><i></i></div></div>
+              <div class="upload-box"><label>Hizmetler</label><input name="bg_services" placeholder="URL" /><input type="file" name="bgServicesFile" accept="image/*" /><div id="bgServicesPending" class="pending-file"></div><div id="bgServicesPendingBar" class="progress-bar"><i></i></div></div>
+              <div class="upload-box"><label>Paketler</label><input name="bg_pricing" placeholder="URL" /><input type="file" name="bgPricingFile" accept="image/*" /><div id="bgPricingPending" class="pending-file"></div><div id="bgPricingPendingBar" class="progress-bar"><i></i></div></div>
+              <div class="upload-box"><label>Hakkımızda</label><input name="bg_about" placeholder="URL" /><input type="file" name="bgAboutFile" accept="image/*" /><div id="bgAboutPending" class="pending-file"></div><div id="bgAboutPendingBar" class="progress-bar"><i></i></div></div>
+              <div class="upload-box"><label>İletişim</label><input name="bg_contact" placeholder="URL" /><input type="file" name="bgContactFile" accept="image/*" /><div id="bgContactPending" class="pending-file"></div><div id="bgContactPendingBar" class="progress-bar"><i></i></div></div>
+              <div class="upload-box"><label>Giriş</label><input name="bg_login" placeholder="URL" /><input type="file" name="bgLoginFile" accept="image/*" /><div id="bgLoginPending" class="pending-file"></div><div id="bgLoginPendingBar" class="progress-bar"><i></i></div></div>
+              <div class="upload-box"><label>Kayıt</label><input name="bg_register" placeholder="URL" /><input type="file" name="bgRegisterFile" accept="image/*" /><div id="bgRegisterPending" class="pending-file"></div><div id="bgRegisterPendingBar" class="progress-bar"><i></i></div></div>
+              <div class="upload-box"><label>Admin Paneli</label><input name="bg_admin" placeholder="URL" /><input type="file" name="bgAdminFile" accept="image/*" /><div id="bgAdminPending" class="pending-file"></div><div id="bgAdminPendingBar" class="progress-bar"><i></i></div></div>
+              <div class="upload-box"><label>Müşteri Paneli</label><input name="bg_customer" placeholder="URL" /><input type="file" name="bgCustomerFile" accept="image/*" /><div id="bgCustomerPending" class="pending-file"></div><div id="bgCustomerPendingBar" class="progress-bar"><i></i></div></div>
+            </div>
+            <div class="field-actions">
+              <button class="btn btn-gold" type="button" data-save-fields="bg_home,bg_services,bg_pricing,bg_about,bg_contact,bg_login,bg_register,bg_admin,bg_customer" onclick="saveSettingsFields('bg_home,bg_services,bg_pricing,bg_about,bg_contact,bg_login,bg_register,bg_admin,bg_customer', 'fb-backgrounds')">Arka Planları Kaydet</button>
+              <button class="btn btn-dark" type="button" onclick="restoreSettingsFields('bg_home|bg_services|bg_pricing|bg_about|bg_contact|bg_login|bg_register|bg_admin|bg_customer')">Eski Ayara Dön</button>
+            </div>
+            <div id="fb-backgrounds" class="section-feedback"></div>
+          </div>
+
+          <div class="field-card">
+            <div class="settings-section-title">Gelişmiş Tasarım Ayarları</div>
+            <div class="design-grid">
+              <div class="field"><label>Yazı Rengi</label><input name="siteTextColor" type="color" /></div>
+              <div class="field"><label>Vurgu Rengi</label><input name="siteAccent" type="color" /></div>
+              <div class="field"><label>Logo Boyutu (px)</label><input name="siteLogoSize" type="number" min="20" max="120" /></div>
+              <div class="field"><label>Panel Saydamlığı</label><input name="sitePanelOpacity" type="number" min="0" max="0.2" step="0.01" /></div>
+              <div class="field" style="grid-column:1/-1"><label>Font Ailesi</label><input name="siteFont" placeholder="Inter, Arial, sans-serif" /></div>
+            </div>
+            <div class="field-actions">
+              <button class="btn btn-gold" type="button" data-save-fields="siteTextColor,siteAccent,siteLogoSize,sitePanelOpacity,siteFont" onclick="saveSettingsFields('siteTextColor,siteAccent,siteLogoSize,sitePanelOpacity,siteFont', 'fb-design')">Tasarım Ayarlarını Kaydet</button>
+              <button class="btn btn-dark" type="button" onclick="restoreSettingsFields('siteTextColor|siteAccent|siteLogoSize|sitePanelOpacity|siteFont')">Eski Ayara Dön</button>
+            </div>
+            <div id="fb-design" class="section-feedback"></div>
+          </div>
+
+        
+          <div class="field-card">
+            <div class="settings-section-title">Üst Menü Yönetimi</div>
+            <form id="navAddForm" class="cms-grid">
+              <div class="field"><label>Yeni Menü Adı</label><input name="navLabel" placeholder="Örn: Taş" /></div>
+              <div class="field"><label>Link / href</label><input name="navHref" placeholder="Örn: tas.html veya #" /></div>
+              <div><button class="btn btn-gold" type="submit">Yeni Menü Ekle</button></div>
+            </form>
+            <div id="navItemsList" class="list-stack" style="margin-top:14px"></div>
+            <div class="restore-note">Buradan Hizmetler, Fiyatlandırma, Hakkımızda, İletişim gibi üst menü başlıklarını değiştirebilir, yeni konu ekleyebilir veya silebilirsin.</div>
+          </div>
+
+        <div class="restore-note">Yanlış işlem yaparsan her bölümdeki "Eski Ayara Dön" ile geri alabilirsin.</div>
+        <div id="settingsMsg" class="msg"></div>
+      </div>
+
+    </section>
+  </div>
+</div></section>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

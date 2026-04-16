@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aurevia Kayıt Ol</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page-id="register">
+
+<header class="site-header">
+  <div class="container">
+    <div class="nav">
+      <a class="brand" href="index.html"><span data-site-logo><span class="mark">A</span></span><span data-site-name>Aurevia</span></a>
+      <nav class="nav-links" data-dynamic-nav></nav>
+      <div class="nav-actions">
+        <a class="btn btn-dark" href="login.html">Giriş Yap</a>
+        <a class="btn btn-gold" href="register.html">Ücretsiz Başla</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="auth-wrap"><div class="container auth-grid">
+  <div class="auth-box">
+    <div class="eyebrow">Kayıt</div><h2>Yeni hesap oluşturun</h2>
+    <form id="registerForm">
+      <div class="field"><label>Ad Soyad</label><input name="name" required /></div>
+            <div class="field"><label>E-posta</label><input name="email" type="email" required /></div>
+      <div class="field"><label>Telefon</label><input name="phone" /></div>
+<div class="field"><label>Şifre</label><input name="password" type="password" required /></div>
+      <button class="btn btn-gold btn-full" type="submit">Hesap Oluştur</button>
+    </form>
+    <div id="registerMsg" class="msg"></div>
+  </div>
+  <div class="card"><p class="muted">Yeni hesap oluşturarak sisteme giriş yapabilirsiniz. Yönetici hesapları sistem yöneticisi tarafından belirlenir.</p></div>
+</div></section>
+
+<footer style="padding:0 0 56px">
+  <div class="container footer-box">
+    <div class="footer-grid">
+      <div>
+        <div class="brand" style="margin-bottom:12px"><span data-site-logo><span class="mark">A</span></span><span data-site-name>Aurevia</span></div>
+        <p class="muted">Kurumsal müşteri deneyimi, yorum takibi, geri bildirim sınıflandırma ve çok kanallı itibar yönetimi için tasarlanmış profesyonel arayüz.</p>
+      </div>
+      <div><h3>Sayfalar</h3><div class="footer-links"><a href="services.html">Hizmetler</a><a href="pricing.html">Fiyatlandırma</a><a href="about.html">Hakkımızda</a></div></div>
+      <div><h3>Erişim</h3><div class="footer-links"><a href="login.html">Giriş Yap</a><a href="register.html">Kayıt Ol</a></div></div>
+      <div><h3>İletişim</h3><div class="footer-links"><span data-contact-email>info@aurevia.com</span><span>+90 555 000 00 00</span><span>İstanbul, Türkiye</span></div></div>
+    </div>
+    <div class="small" style="margin-top:22px">© 2026 <span data-site-name>Aurevia</span>. Tüm hakları saklıdır.</div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

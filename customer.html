@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aurevia Müşteri Paneli</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page-id="customer">
+
+<div data-require-customer></div>
+<header class="site-header"><div class="container"><div class="nav">
+  <a class="brand" href="index.html"><span data-site-logo><span class="mark">A</span></span><span data-site-name>Aurevia</span> <span style="color:var(--gold2)">Müşteri</span></a>
+  <div class="nav-actions"><a class="btn btn-dark" href="index.html">Siteye Dön</a><a class="btn btn-gold" href="#" data-logout>Çıkış Yap</a></div>
+</div></div></header>
+
+<section class="page-hero"><div class="container topbar">
+  <div><div class="eyebrow">Müşteri paneli</div><h2>Hoş geldiniz, <span class="gold" data-session-name>Kullanıcı</span></h2>
+  <p class="lead"><span data-session-company>Şirket</span> hesabınızın bakiyesi, talepleri, siparişleri ve mesaj alanı burada görünür.</p></div>
+  <div class="notice"><div><strong data-session-email></strong></div><div class="small">Rol: Müşteri</div></div>
+</div></section>
+
+<section class="panel-layout"><div class="container panel-grid">
+  <aside class="sidebar">
+    <h3>Menü</h3>
+    <div class="menu" data-tab-scope="customer-tabs">
+      <a href="#" class="active" data-tab-btn="overview">Panel</a>
+      <a href="#" data-tab-btn="balance">Bakiye</a>
+      <a href="#" data-tab-btn="requests">Taleplerim</a>
+      <a href="#" data-tab-btn="orders">Siparişlerim</a>
+      <a href="#" data-tab-btn="activePackages">Aktif Paketlerim</a>
+      <a href="#" data-tab-btn="buy">Paket Satın Al</a>
+      <a href="#" data-tab-btn="profileReq">Profil Talebi</a>
+      <a href="#" data-tab-btn="messages">Mesajlar <span class="notify-pill" data-customer-unread style="display:none">0</span></a>
+    </div>
+  </aside>
+
+  <div class="main customer-tabs-content">
+    <section class="panel-section active" data-tab-section="overview">
+      <h3>Genel Bakış</h3>
+      <div class="panel-cards">
+        <div class="panel-block"><div class="small">Mevcut bakiye</div><div class="kpi" id="customerBalanceMini">₺0</div><span class="badge ok">güncel</span></div>
+        <div class="panel-block"><div class="small">Temsilci</div><div class="kpi" style="font-size:22px" data-representative>Yasin</div><span class="badge ok">atanmış</span></div>
+        <div class="panel-block"><div class="small">Son sipariş takibi</div><div id="orderTracking" class="order-track"></div></div>
+      </div>
+    </section>
+
+    <section class="panel-section" data-tab-section="balance">
+      <h3>Bakiye İşlemleri</h3>
+      <div class="panel-block">
+        <div class="small">Toplam bakiye</div><div class="kpi" id="customerBalance">₺0</div>
+        <form id="balanceRequestForm" class="inline-form" style="margin-top:18px">
+          <input name="amount" type="number" min="1" placeholder="Talep tutarı" required />
+          <input name="representative" type="text" placeholder="Temsilci" required />
+          <input name="phone" type="text" placeholder="Telefon numaran" required />
+          <button class="btn btn-gold" type="submit">Bakiye Talebi Gönder</button>
+          <div id="customerChatStatus" class="msg" style="margin-top:10px"></div>
+        </form>
+        <div class="balance-action-stack">
+          <a
+            href="https://wa.me/4915124302375?text=Merhaba%20bakiye%20y%C3%BCklemek%20istiyorum"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-whatsapp btn-full"
+            id="balanceWhatsappBtn"
+          >
+            <span class="wa-icon" aria-hidden="true">
+              <svg viewBox="0 0 32 32" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19.11 17.34c-.27-.14-1.58-.78-1.82-.87-.24-.09-.42-.14-.6.14-.18.27-.69.87-.85 1.05-.16.18-.31.2-.58.07-.27-.14-1.12-.41-2.14-1.31-.79-.71-1.32-1.58-1.47-1.85-.16-.27-.02-.41.12-.55.12-.12.27-.31.4-.47.13-.16.18-.27.27-.45.09-.18.05-.34-.02-.47-.07-.14-.6-1.45-.82-1.98-.21-.51-.43-.44-.6-.45h-.51c-.18 0-.47.07-.72.34-.24.27-.94.92-.94 2.24 0 1.32.96 2.59 1.09 2.77.14.18 1.88 2.87 4.55 4.02.64.27 1.14.43 1.53.55.64.2 1.22.17 1.68.11.51-.08 1.58-.65 1.8-1.28.22-.63.22-1.18.16-1.28-.07-.11-.24-.18-.51-.31Z"/>
+                <path d="M16.03 3.2c-7.05 0-12.78 5.7-12.78 12.72 0 2.25.59 4.45 1.71 6.39L3.17 28.8l6.66-1.75a12.83 12.83 0 0 0 6.2 1.58h.01c7.05 0 12.77-5.7 12.77-12.72 0-3.4-1.33-6.6-3.75-9-2.41-2.4-5.62-3.72-9.03-3.71Zm0 23.28h-.01a10.7 10.7 0 0 1-5.46-1.49l-.39-.23-3.95 1.03 1.06-3.84-.26-.4a10.55 10.55 0 0 1-1.63-5.61c0-5.88 4.8-10.67 10.71-10.67 2.86 0 5.54 1.11 7.56 3.11a10.58 10.58 0 0 1 3.14 7.56c0 5.88-4.81 10.67-10.73 10.67Z"/>
+              </svg>
+            </span>
+            <span>WhatsApp ile Bakiye Yükle</span>
+          </a>
+        </div>
+        <div id="balanceRequestMsg" class="msg"></div>
+      </div>
+    </section>
+
+    <section class="panel-section" data-tab-section="requests">
+      <h3>Bakiye Taleplerim</h3>
+      <div id="customerRequests" class="list-stack"></div>
+    </section>
+
+    <section class="panel-section" data-tab-section="orders">
+      <h3>Siparişlerim</h3>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Paket</th><th>Tutar</th><th>Durum</th><th>Son Durum</th><th>Tarih</th></tr></thead>
+          <tbody id="customerOrdersTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel-section" data-tab-section="activePackages">
+      <h3>Aktif Paketlerim</h3>
+      <div id="activePackagesList" class="list-stack"></div>
+    </section>
+
+    <section class="panel-section" data-tab-section="buy">
+      <h3>Bakiye ile Paket Satın Al</h3>
+      <div class="panel-block">
+        <form id="packageBuyForm" class="inline-form">
+          <select name="packageId"></select>
+          <button class="btn btn-gold" type="submit">Satın Al</button>
+        </form>
+        <div id="buyPkgMsg" class="msg"></div>
+        <div data-package-showcase class="dynamic-packages"></div>
+      </div>
+    </section>
+
+    <section class="panel-section" data-tab-section="profileReq">
+      <h3>Profil Bilgilerimi Değiştir</h3>
+      <div class="panel-block">
+        <form id="profileRequestForm" class="cms-grid">
+          <div class="field"><label>Yeni E-posta</label><input name="newEmail" type="email" /></div>
+          <div class="field"><label>Yeni Telefon</label><input name="newPhone" /></div>
+          <div class="field"><label>Yeni Şifre</label><input name="newPassword" type="password" /></div>
+          <div><button class="btn btn-gold" type="submit">Profil Talebini Gönder</button></div>
+        </form>
+        <div id="profileRequestMsg" class="msg"></div>
+      </div>
+    </section>
+
+    <section class="panel-section" data-tab-section="messages">
+      <h3>Admin ile Mesajlaşma</h3>
+      <div class="message-box chat-panel">
+        <div id="customerChatMessages" class="chat-list"></div>
+        <form id="customerChatForm" class="chat-input-box">
+          <textarea name="text" placeholder="Mesaj yaz..." rows="5" style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text)"></textarea>
+          <button class="btn btn-gold" type="submit" style="margin-top:10px">Gönder</button>
+        </form>
+      </div>
+    </section>
+  </div>
+</div></section>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
