@@ -3073,86 +3073,53 @@ document.addEventListener('DOMContentLoaded', function(){
 /* ===== end v40 ===== */
 
 
-/* ===== vHome KPI + robust settings sync ===== */
-let __siteSettingsSyncTimer = null;
-async function sbSaveSettingsSnapshot(snapshot){
-  try{
-    if(!supabaseClient) return false;
-    const payload = { id: 1, data: snapshot, updated_at: new Date().toISOString() };
-    const { error } = await supabaseClient.from("site_settings").upsert([payload], { onConflict: "id" });
-    if(error){ console.error("site_settings snapshot save error:", error); return false; }
-    return true;
-  }catch(err){
-    console.error("site_settings snapshot save error:", err);
-    return false;
+/* ===== Supabase active packages fix ===== */
+async function sbRenderActivePackages(){
+  const mount = document.getElementById('activePackagesList');
+  if(!mount || !supabaseClient) return;
+  const profile = await sbGetCurrentProfile();
+  if(!profile){
+    mount.innerHTML = '<div class="status-note">Henüz aktif paketin yok.</div>';
+    return;
   }
-}
-
-try{
-  const __originalSaveSettings = saveSettings;
-  saveSettings = function(v){
-    __originalSaveSettings(v);
-    clearTimeout(__siteSettingsSyncTimer);
-    __siteSettingsSyncTimer = setTimeout(function(){ sbSaveSettingsSnapshot(getSettings()); }, 250);
-  };
-  window.saveSettings = saveSettings;
-}catch(e){ console.warn('saveSettings override warning', e); }
-
-async function sbEnsureSettingsHydrated(){
-  try{
-    const loaded = await sbLoadSiteSettingsToLocal();
-    if(!loaded){ await sbSaveSettingsSnapshot(getSettings()); }
-    try{ syncGlobalText(); }catch(e){}
-    try{ fillSettingsForm(); }catch(e){}
-  }catch(err){ console.warn('sbEnsureSettingsHydrated warning', err); }
-}
-
-document.addEventListener('DOMContentLoaded', function(){
-  setTimeout(sbEnsureSettingsHydrated, 120);
-});
-
-async function homeAnimateActiveRequests(){
-  const countEl = document.getElementById('homeActiveRequestsCount');
-  const barEl = document.getElementById('homeActiveRequestsBar');
-  if(!countEl || !barEl) return;
-
-  let baseCount = Number(countEl.getAttribute('data-base') || countEl.textContent || 0) || 0;
-  let displayed = baseCount;
-  let phase = 0;
-
-  async function refreshBase(){
-    try{
-      if(!supabaseClient) return;
-      const { count, error } = await supabaseClient
-        .from('balance_requests')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'pending');
-      if(!error && typeof count === 'number'){
-        baseCount = count;
-        countEl.setAttribute('data-base', String(baseCount));
-      }
-    }catch(err){ console.warn('home active requests fetch warning', err); }
+  const { data, error } = await supabaseClient
+    .from('orders')
+    .select('*')
+    .eq('user_id', profile.id)
+    .order('created_at', { ascending:false });
+  if(error){
+    console.error(error);
+    mount.innerHTML = '<div class="status-note">Aktif paketler yüklenemedi.</div>';
+    return;
   }
-
-  function frame(){
-    phase += 0.18;
-    const fluctuation = Math.round(Math.sin(phase) * 2 + Math.cos(phase * 0.55) * 1);
-    const target = Math.max(0, baseCount + fluctuation);
-    displayed += (target - displayed) * 0.2;
-    const shown = Math.max(0, Math.round(displayed));
-    countEl.textContent = shown.toLocaleString('tr-TR');
-    const pct = Math.max(12, Math.min(96, 24 + shown * 0.8));
-    barEl.style.width = pct + '%';
+  const orders = (data || []).filter(o => String(o.status || '').toLowerCase() !== 'rejected');
+  if(!orders.length){
+    mount.innerHTML = '<div class="status-note">Henüz aktif paketin yok.</div>';
+    return;
   }
-
-  await refreshBase();
-  frame();
-  setInterval(frame, 180);
-  setInterval(refreshBase, 15000);
+  mount.innerHTML = orders.map(order => `
+    <div class="item-row">
+      <div>
+        <strong>${order.package_name || order.packageName || '-'}</strong>
+        <div class="small">Tutar: ${fmtMoney(order.amount || order.price || 0)}</div>
+        <div class="small">Son durum: ${order.stage || (String(order.status||'').toLowerCase()==='completed' ? 'Tamamlandı' : String(order.status||'').toLowerCase()==='pending' ? 'Sipariş alındı' : String(order.status||'')) || '-'}</div>
+        <div class="small">Tarih: ${order.date || (order.created_at ? new Date(order.created_at).toLocaleDateString('tr-TR') : '-')}</div>
+      </div>
+      <div>
+        <span class="badge ${String(order.status||'').toLowerCase()==='completed'?'ok':String(order.status||'').toLowerCase()==='pending'?'warn':'off'}">${String(order.status||'').toLowerCase()==='completed' ? 'Tamamlandı' : String(order.status||'').toLowerCase()==='pending' ? 'Beklemede' : String(order.status||'').toLowerCase()==='rejected' ? 'Reddedildi' : (order.status || '-')}</span>
+      </div>
+    </div>
+  `).join('');
 }
 
 document.addEventListener('DOMContentLoaded', function(){
-  if(document.body && document.body.getAttribute('data-page-id') === 'home'){
-    setTimeout(homeAnimateActiveRequests, 250);
-  }
+  setTimeout(async function(){
+    try{ await sbRenderActivePackages(); }catch(e){ console.error(e); }
+    document.querySelectorAll('[data-tab-btn="activePackages"]').forEach(btn=>{
+      btn.addEventListener('click', async function(){
+        try{ await sbRenderActivePackages(); }catch(e){ console.error(e); }
+      });
+    });
+  }, 500);
 });
+/* ===== end Supabase active packages fix ===== */
