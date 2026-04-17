@@ -2916,3 +2916,158 @@ document.addEventListener('DOMContentLoaded', function(){
   }, 900);
 });
 /* ===== end orders/messages fix ===== */
+
+
+/* ===== v40 BALANCE + PROFILE REQUESTS + PUBLIC SESSION FIX ===== */
+async function sbRefreshPublicSession(){
+  if(!supabaseClient) return null;
+  try{
+    const s = await sbEnsureLocalSession();
+    document.querySelectorAll("[data-session-name]").forEach(el=>{ if(s) el.textContent=s.name; });
+    document.querySelectorAll("[data-session-email]").forEach(el=>{ if(s) el.textContent=s.email; });
+    document.querySelectorAll("[data-session-company]").forEach(el=>{ if(s) el.textContent=s.company||"Kurumsal Hesap"; });
+    return s;
+  }catch(e){ console.error(e); return null; }
+}
+
+async function sbDecoratePublicAuthLinks(){
+  const s = await sbRefreshPublicSession();
+  if(!s) return;
+  const target = s.role === 'admin' ? 'admin.html' : 'customer.html';
+  document.querySelectorAll('a[href="login.html"], a[href="register.html"]').forEach(a=>{
+    if(a.hasAttribute('data-logout')) return;
+    a.setAttribute('href', target);
+    const txt = (a.textContent || '').trim();
+    if(/giriş|başla|kayıt|hesabıma/i.test(txt)) a.textContent = s.role === 'admin' ? 'Admin Panelim' : 'Müşteri Panelim';
+  });
+}
+
+renderBalanceRequests = async function(){
+  const mount=document.getElementById("requestList");
+  if(!mount || !supabaseClient) return;
+  const { data, error } = await supabaseClient.from("balance_requests").select("*").order("created_at", { ascending: false });
+  if(error){ console.error(error); mount.innerHTML='<div class="status-note">Bakiye talepleri yüklenemedi.</div>'; return; }
+  if(!data || !data.length){ mount.innerHTML='<div class="status-note">Henüz bakiye talebi yok.</div>'; return; }
+  mount.innerHTML = data.map(req=>`
+    <div class="item-row">
+      <div>
+        <strong>${req.full_name || 'Kullanıcı'}</strong>
+        <div class="small">${req.email || '-'} • ${fmtMoney(req.amount)} • ${req.note || '-'}</div>
+        <div class="small">Durum: ${req.status === 'pending' ? 'Bekliyor' : req.status === 'approved' ? 'Onaylandı' : 'Reddedildi'}</div>
+      </div>
+      <div class="item-actions">
+        ${req.status === 'pending' ? `<button class="small-btn green" data-sb-approve="${req.id}">Onayla</button><button class="small-btn red" data-sb-reject="${req.id}">Reddet</button>` : ''}
+      </div>
+    </div>
+  `).join("");
+
+  mount.querySelectorAll("[data-sb-approve]").forEach(btn=>btn.addEventListener("click", async ()=>{
+    const id=btn.getAttribute("data-sb-approve");
+    const { data: req, error: reqErr } = await supabaseClient.from('balance_requests').select('*').eq('id', id).maybeSingle();
+    if(reqErr || !req){ console.error(reqErr); alert('Talep bulunamadı.'); return; }
+    if(req.status !== 'pending'){ renderBalanceRequests(); return; }
+    const targetProfile = req.user_id
+      ? await sbGetProfileByUserId(req.user_id)
+      : await sbGetProfileByEmail(req.email);
+    if(!targetProfile){ alert('Kullanıcı profili bulunamadı.'); return; }
+    const newBalance = Number(targetProfile.balance || 0) + Number(req.amount || 0);
+    const { error: balErr } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', targetProfile.id);
+    if(balErr){ console.error(balErr); alert('Bakiye güncellenemedi.'); return; }
+    const { error: upErr } = await supabaseClient.from('balance_requests').update({ status: 'approved' }).eq('id', id);
+    if(upErr){ console.error(upErr); alert('Talep onaylanamadı.'); return; }
+    try{ await sbRefreshPublicSession(); }catch(e){}
+    renderBalanceRequests(); renderAdminSummary(); renderUsersAdmin(); renderCustomerBalance(); renderCustomerRequests();
+  }));
+  mount.querySelectorAll("[data-sb-reject]").forEach(btn=>btn.addEventListener("click", async ()=>{
+    const id=btn.getAttribute("data-sb-reject");
+    const { error } = await supabaseClient.from("balance_requests").update({ status: "rejected" }).eq("id", id);
+    if(error){ console.error(error); alert("Reddedilemedi."); return; }
+    renderBalanceRequests(); renderAdminSummary(); renderCustomerRequests();
+  }));
+};
+
+window.bindProfileRequestForm = function(){
+  const oldForm = document.getElementById('profileRequestForm');
+  if(!oldForm || !supabaseClient) return;
+  const form = oldForm.cloneNode(true);
+  oldForm.parentNode.replaceChild(form, oldForm);
+  form.dataset.supabaseBound = '1';
+  form.addEventListener('submit', async function(e){
+    e.preventDefault();
+    const msg = document.getElementById('profileRequestMsg');
+    const profile = await sbGetCurrentProfile();
+    if(!profile){ if(msg) showMessage(msg, 'Profil bulunamadı. Tekrar giriş yapın.', false); return false; }
+    const newEmail = (form.querySelector('[name="newEmail"]')?.value || '').trim();
+    const newPhone = (form.querySelector('[name="newPhone"]')?.value || '').trim();
+    const newPassword = (form.querySelector('[name="newPassword"]')?.value || '').trim();
+    if(!newEmail && !newPhone && !newPassword){ if(msg) showMessage(msg, 'En az bir alan doldur.', false); return false; }
+    const payload = {
+      user_id: profile.id,
+      user_email: profile.email,
+      user_name: profile.full_name || profile.email,
+      new_email: newEmail || null,
+      new_phone: newPhone || null,
+      new_password: newPassword || null,
+      status: 'pending'
+    };
+    const { error } = await supabaseClient.from('profile_requests').insert([payload]);
+    if(error){ console.error(error); if(msg) showMessage(msg, 'Talep gönderilemedi.', false); return false; }
+    form.reset();
+    if(msg) showMessage(msg, 'Profil talebi admine gönderildi.');
+    return false;
+  });
+};
+
+window.renderProfileRequestsAdmin = async function(){
+  const mount = document.getElementById('profileRequestsList');
+  if(!mount || !supabaseClient) return;
+  const { data, error } = await supabaseClient.from('profile_requests').select('*').order('created_at', { ascending:false });
+  if(error){ console.error(error); mount.innerHTML='<div class="status-note">Profil talepleri yüklenemedi.</div>'; return; }
+  if(!data || !data.length){ mount.innerHTML='<div class="status-note">Profil değişiklik talebi yok.</div>'; return; }
+  mount.innerHTML = data.map(req => `
+    <div class="item-row">
+      <div>
+        <strong>${req.user_name || 'Kullanıcı'}</strong>
+        <div class="small">Hesap: ${req.user_email || '-'}</div>
+        <div class="small">Yeni e-posta: ${req.new_email || '-'} • Yeni telefon: ${req.new_phone || '-'}</div>
+        <div class="small">Şifre değişimi: ${req.new_password ? 'Var' : 'Yok'} • Durum: ${req.status || 'pending'}</div>
+      </div>
+      <div class="item-actions">
+        ${req.status === 'pending' ? `<button class="small-btn green" data-approve-profile="${req.id}">Onayla</button><button class="small-btn red" data-reject-profile="${req.id}">Reddet</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  mount.querySelectorAll('[data-approve-profile]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const id = btn.getAttribute('data-approve-profile');
+    const { data: req, error: reqErr } = await supabaseClient.from('profile_requests').select('*').eq('id', id).maybeSingle();
+    if(reqErr || !req){ console.error(reqErr); alert('Talep bulunamadı.'); return; }
+    const updates = {};
+    if(req.new_email) updates.email = req.new_email;
+    if(req.new_phone) updates.phone = req.new_phone;
+    if(req.new_email || req.new_phone){
+      const { error: profErr } = await supabaseClient.from('profiles').update(updates).eq('id', req.user_id);
+      if(profErr){ console.error(profErr); alert('Profil güncellenemedi.'); return; }
+    }
+    const { error: upErr } = await supabaseClient.from('profile_requests').update({ status:'approved' }).eq('id', id);
+    if(upErr){ console.error(upErr); alert('Talep güncellenemedi.'); return; }
+    renderProfileRequestsAdmin();
+  }));
+
+  mount.querySelectorAll('[data-reject-profile]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const id = btn.getAttribute('data-reject-profile');
+    const { error } = await supabaseClient.from('profile_requests').update({ status:'rejected' }).eq('id', id);
+    if(error){ console.error(error); alert('Talep reddedilemedi.'); return; }
+    renderProfileRequestsAdmin();
+  }));
+};
+
+document.addEventListener('DOMContentLoaded', function(){
+  setTimeout(async function(){
+    try{ await sbRefreshPublicSession(); }catch(e){}
+    try{ await sbDecoratePublicAuthLinks(); }catch(e){}
+    try{ window.bindProfileRequestForm(); }catch(e){ console.error(e); }
+    try{ window.renderProfileRequestsAdmin(); }catch(e){ console.error(e); }
+  }, 120);
+});
+/* ===== end v40 ===== */
