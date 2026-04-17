@@ -2486,3 +2486,86 @@ document.addEventListener("DOMContentLoaded", function(){
   }, 120);
 });
 /* ===== end v37 ===== */
+
+
+// --- Supabase shared site settings sync ---
+async function sbLoadSiteSettingsToLocal(){
+  try{
+    if(!supabaseClient) return false;
+    const { data, error } = await supabaseClient
+      .from("site_settings")
+      .select("id,data,updated_at")
+      .eq("id", 1)
+      .maybeSingle();
+    if(error){
+      console.warn("site_settings load warning:", error);
+      return false;
+    }
+    if(data && data.data && typeof data.data === "object"){
+      const merged = { ...defaults.settings, ...data.data };
+      saveSettings(merged);
+      try{ fillSettingsForm(); }catch(e){}
+      try{ syncGlobalText(); }catch(e){}
+      try{ renderPricingCards(); }catch(e){}
+      try{ renderPackageShowcaseCards(); }catch(e){}
+      try{ updateBalanceWhatsappButton(); }catch(e){}
+      return true;
+    }
+    return false;
+  }catch(err){
+    console.warn("site_settings load error:", err);
+    return false;
+  }
+}
+
+async function sbSaveSiteSettingsFromLocal(){
+  try{
+    if(!supabaseClient) return false;
+    const payload = {
+      id: 1,
+      data: getSettings(),
+      updated_at: new Date().toISOString()
+    };
+    const { error } = await supabaseClient.from("site_settings").upsert([payload], { onConflict: "id" });
+    if(error){
+      console.error("site_settings save error:", error);
+      return false;
+    }
+    return true;
+  }catch(err){
+    console.error("site_settings save error:", err);
+    return false;
+  }
+}
+
+(function(){
+  const originalSaveSettingsFields = window.saveSettingsFields;
+  if(typeof originalSaveSettingsFields === "function"){
+    window.saveSettingsFields = async function(fieldsCsv, feedbackId){
+      await originalSaveSettingsFields(fieldsCsv, feedbackId);
+      const ok = await sbSaveSiteSettingsFromLocal();
+      if(ok){
+        const msg=document.getElementById("settingsMsg");
+        if(msg) showMessage(msg, "Ayarlar herkese açık şekilde kaydedildi.");
+      }
+    };
+  }
+
+  const originalRestoreSettingsFields = window.restoreSettingsFields;
+  if(typeof originalRestoreSettingsFields === "function"){
+    window.restoreSettingsFields = async function(fieldsKey){
+      await originalRestoreSettingsFields(fieldsKey);
+      await sbSaveSiteSettingsFromLocal();
+    };
+  }
+})();
+
+document.addEventListener("DOMContentLoaded", function(){
+  setTimeout(async function(){
+    const loaded = await sbLoadSiteSettingsToLocal();
+    if(!loaded){
+      // İlk kurulumda local ayarları Supabase'e gönder
+      await sbSaveSiteSettingsFromLocal();
+    }
+  }, 250);
+});
