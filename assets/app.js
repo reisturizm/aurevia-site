@@ -736,9 +736,17 @@ function forceOpenMessagesTab(scope){
 function setActiveTab(scope, target){
   const buttons = document.querySelectorAll(`.${scope} [data-tab-btn]`);
   const sections = document.querySelectorAll(`.${scope}-content [data-tab-section]`);
+  let activeSection = null;
   buttons.forEach(x=>x.classList.toggle("active", x.getAttribute("data-tab-btn")===target));
-  sections.forEach(sec=>sec.classList.toggle("active", sec.getAttribute("data-tab-section")===target));
+  sections.forEach(sec=>{
+    const isActive = sec.getAttribute("data-tab-section")===target;
+    sec.classList.toggle("active", isActive);
+    if(isActive) activeSection = sec;
+  });
   const state=getTabState(); state[scope]=target; saveTabState(state);
+  if(activeSection){
+    setTimeout(()=>activeSection.scrollIntoView({behavior:"smooth", block:"start"}), 60);
+  }
 }
 
 
@@ -2772,7 +2780,14 @@ async function sbBindPackagePurchase(){
     if(orderErr){ console.error(orderErr); if(msg) showMessage(msg, 'Sipariş kaydı oluşturulamadı. SQL dosyasını çalıştır.', false); return false; }
     const s = getSession() || {};
     setSession({ ...s, balance:newBalance, email: profile.email, name: profile.full_name || profile.email, role: normalizeAppRole(profile.role || 'customer'), isActive:true });
-    if(msg) showMessage(msg, 'Paket satın alındı.');
+    if(msg) showMessage(msg, 'Sipariş verildi. İstediğiniz yorum metnini WhatsApp üzerinden iletin.', true);
+    const waWrap = document.getElementById('packageOrderWhatsappWrap');
+    const waBtn = document.getElementById('packageOrderWhatsappBtn');
+    const note = document.getElementById('packageOrderNotice');
+    const waText = `Merhaba, ${profile.full_name || profile.email} olarak ${pkg.name} paketi için sipariş verdim. Site linkim: ${siteUrl}. Yazılmasını istediğim yorum metni: `;
+    if(waBtn) waBtn.href = `https://wa.me/4915124302375?text=${encodeURIComponent(waText)}`;
+    if(note) note.style.display = 'block';
+    if(waWrap) waWrap.style.display = 'flex';
     await renderCustomerBalance();
     await sbRenderCustomerOrders();
     await sbRenderCustomerOrderTracking();
@@ -3353,4 +3368,51 @@ document.addEventListener('DOMContentLoaded', function(){
       await sbEnforceCurrentSessionActive();
     }
   }, 350);
+});
+
+
+function setupCustomerPurchaseHints(){
+  const form = document.getElementById('packageBuyForm');
+  if(!form || document.getElementById('packageOrderNotice')) return;
+  const note = document.createElement('div');
+  note.id = 'packageOrderNotice';
+  note.className = 'small';
+  note.style.marginTop = '10px';
+  note.style.opacity = '0.88';
+  note.textContent = 'Sipariş verildikten sonra, yorumlarda ne yazılmasını istediğinizi WhatsApp üzerinden iletin.';
+  form.insertAdjacentElement('afterend', note);
+
+  const wrap = document.createElement('div');
+  wrap.id = 'packageOrderWhatsappWrap';
+  wrap.className = 'balance-action-stack';
+  wrap.style.marginTop = '10px';
+  wrap.style.display = 'none';
+  wrap.innerHTML = `
+    <a href="https://wa.me/4915124302375" target="_blank" rel="noopener noreferrer" class="btn btn-whatsapp btn-full" id="packageOrderWhatsappBtn">
+      <span class="wa-icon" aria-hidden="true">
+        <svg viewBox="0 0 32 32" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M19.11 17.34c-.27-.14-1.58-.78-1.82-.87-.24-.09-.42-.14-.6.14-.18.27-.69.87-.85 1.05-.16.18-.31.2-.58.07-.27-.14-1.12-.41-2.14-1.31-.79-.71-1.32-1.58-1.47-1.85-.16-.27-.02-.41.12-.55.12-.12.27-.31.4-.47.13-.16.18-.27.27-.45.09-.18.05-.34-.02-.47-.07-.14-.6-1.45-.82-1.98-.21-.51-.43-.44-.6-.45h-.51c-.18 0-.47.07-.72.34-.24.27-.94.92-.94 2.24 0 1.32.96 2.59 1.09 2.77.14.18 1.88 2.87 4.55 4.02.64.27 1.14.43 1.53.55.64.2 1.22.17 1.68.11.51-.08 1.58-.65 1.8-1.28.22-.63.22-1.18.16-1.28-.07-.11-.24-.18-.51-.31Z"/><path d="M16.03 3.2c-7.05 0-12.78 5.7-12.78 12.72 0 2.25.59 4.45 1.71 6.39L3.17 28.8l6.66-1.75a12.83 12.83 0 0 0 6.2 1.58h.01c7.05 0 12.77-5.7 12.77-12.72 0-3.4-1.33-6.6-3.75-9-2.41-2.4-5.62-3.71-9.03-3.71Zm0 23.09h-.01a10.6 10.6 0 0 1-5.39-1.47l-.39-.23-3.95 1.04 1.06-3.84-.25-.4a10.42 10.42 0 0 1-1.6-5.52c0-5.76 4.71-10.44 10.52-10.44 2.81 0 5.45 1.09 7.43 3.06a10.35 10.35 0 0 1 3.09 7.38c0 5.76-4.72 10.42-10.51 10.42Z"/></svg>
+      </span>
+      Sipariş Detayını WhatsApp'tan Gönder
+    </a>`;
+  note.insertAdjacentElement('afterend', wrap);
+}
+
+function setupBalanceInstruction(){
+  const form = document.getElementById('balanceRequestForm');
+  if(!form || document.getElementById('balanceInstructionNote')) return;
+  const note = document.createElement('div');
+  note.id = 'balanceInstructionNote';
+  note.className = 'small';
+  note.style.marginTop = '12px';
+  note.style.opacity = '0.84';
+  note.textContent = 'İlk önce bakiye talebinizi verin, sonra WhatsApp üzerinden ödeme bilgilerini alıp ödemenizi yapın ve dekontu iletin. Kontrol edilip onaylanacaktır.';
+  const stack = form.parentElement;
+  if(stack) stack.insertBefore(note, document.getElementById('customerRequests') || form.nextSibling);
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  setTimeout(function(){
+    setupCustomerPurchaseHints();
+    setupBalanceInstruction();
+  }, 150);
 });
