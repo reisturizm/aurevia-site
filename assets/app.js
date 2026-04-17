@@ -2898,12 +2898,6 @@ function sbBindAdminChatForm(){
   };
 }
 
-document.addEventListener('click', function(e){
-  const a = e.target.closest && e.target.closest('a[href="index.html"], a[href="./index.html"], a[href="/"], a[href="/"]');
-  if(!a) return;
-  // public sayfalara dönerken çıkış yapma; sadece link normal çalışsın
-});
-
 document.addEventListener('DOMContentLoaded', function(){
   setTimeout(async function(){
     if(!supabaseClient) return;
@@ -2946,6 +2940,14 @@ async function sbDecoratePublicAuthLinks(){
     const txt = (a.textContent || '').trim();
     if(/giriş|başla|kayıt|hesabıma/i.test(txt)) a.textContent = s.role === 'admin' ? 'Admin Panelim' : 'Müşteri Panelim';
   });
+  ['loginBtn','registerBtn','heroStartBtn'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    if(el.tagName==='A') el.setAttribute('href', target);
+    else el.onclick=()=>{ window.location.href=target; };
+    const txt=(el.textContent||'').trim();
+    if(/giriş|başla|kayıt|hesabıma/i.test(txt)) el.textContent = s.role === 'admin' ? 'Admin Panelim' : 'Müşteri Panelim';
+  });
 }
 
 renderBalanceRequests = async function(){
@@ -2982,12 +2984,12 @@ renderBalanceRequests = async function(){
       const res = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', targetProfile.id);
       balErr = res.error || null;
     }
-    if(balErr && req.email){
-      console.warn('ID ile bakiye güncelleme başarısız, email ile yeniden deneniyor.', balErr);
-      const retry = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('email', req.email);
+    if(balErr && (req.email || targetProfile.email)){
+      console.warn('Balance update by id failed, retrying by email', balErr);
+      const retry = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('email', req.email || targetProfile.email);
       balErr = retry.error || null;
     }
-    if(balErr){ console.error(balErr); alert('Bakiye güncellenemedi. Önce SUPABASE_EXTRA_TABLES_SQL.txt içindeki SQL'i çalıştır.'); return; }
+    if(balErr){ console.error(balErr); alert('Bakiye güncellenemedi. SQL dosyasını tekrar çalıştır.'); return; }
     const { error: upErr } = await supabaseClient.from('balance_requests').update({ status: 'approved' }).eq('id', id);
     if(upErr){ console.error(upErr); alert('Talep onaylanamadı.'); return; }
     try{ await sbRefreshPublicSession(); }catch(e){}
@@ -3061,8 +3063,17 @@ window.renderProfileRequestsAdmin = async function(){
     if(req.new_email) updates.email = req.new_email;
     if(req.new_phone) updates.phone = req.new_phone;
     if(req.new_email || req.new_phone){
-      const { error: profErr } = await supabaseClient.from('profiles').update(updates).eq('id', req.user_id);
-      if(profErr){ console.error(profErr); alert('Profil güncellenemedi.'); return; }
+      let profErr = null;
+      if(req.user_id){
+        const res = await supabaseClient.from('profiles').update(updates).eq('id', req.user_id);
+        profErr = res.error || null;
+      }
+      if(profErr && req.user_email){
+        console.warn('Profile update by id failed, retrying by email', profErr);
+        const retry = await supabaseClient.from('profiles').update(updates).eq('email', req.user_email);
+        profErr = retry.error || null;
+      }
+      if(profErr){ console.error(profErr); alert('Profil güncellenemedi. SQL dosyasını tekrar çalıştır.'); return; }
     }
     const { error: upErr } = await supabaseClient.from('profile_requests').update({ status:'approved' }).eq('id', id);
     if(upErr){ console.error(upErr); alert('Talep güncellenemedi.'); return; }
@@ -3076,12 +3087,6 @@ window.renderProfileRequestsAdmin = async function(){
     renderProfileRequestsAdmin();
   }));
 };
-
-document.addEventListener('click', function(e){
-  const a = e.target.closest && e.target.closest('a[href="index.html"], a[href="./index.html"], a[href="/"], a[href="/"]');
-  if(!a) return;
-  // public sayfalara dönerken çıkış yapma; sadece link normal çalışsın
-});
 
 document.addEventListener('DOMContentLoaded', function(){
   setTimeout(async function(){
