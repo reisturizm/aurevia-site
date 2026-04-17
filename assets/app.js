@@ -2705,7 +2705,7 @@ async function sbRenderCustomerOrders(){
   if(tbody){
     if(!orders.length){ tbody.innerHTML='<tr><td colspan="5">Henüz sipariş yok.</td></tr>'; }
     else {
-      tbody.innerHTML = orders.map(order=>`<tr><td>${order.package_name || '-'}</td><td>${fmtMoney(order.amount || 0)}</td><td><span class="badge ${order.status==="completed"?"ok":order.status==="pending"?"warn":"off"}">${order.status === 'completed' ? 'Tamamlandı' : order.status === 'pending' ? 'Beklemede' : order.status === 'rejected' ? 'Reddedildi' : (order.status || '-')}</span></td><td>${order.stage || '-'}</td><td>${order.date || '-'}</td></tr>`).join('');
+      tbody.innerHTML = orders.map(order=>`<tr><td>${order.package_name || '-'}</td><td>${fmtMoney(order.amount || 0)}</td><td><span class="badge ${order.status==="completed"?"ok":order.status==="pending"?"warn":"off"}">${order.status === 'completed' ? 'Tamamlandı' : order.status === 'pending' ? 'Beklemede' : order.status === 'rejected' ? 'Reddedildi' : (order.status || '-')}</span></td><td>${order.stage || '-'}</td><td>${order.site_url ? `<a href="${order.site_url}" target="_blank" rel="noopener">Site Linki</a>` : '-'}</td><td>${order.date || '-'}</td></tr>`).join('');
     }
   }
 }
@@ -2744,7 +2744,9 @@ async function sbBindPackagePurchase(){
     const profile = await sbGetCurrentProfile();
     if(!profile){ if(msg) showMessage(msg, 'Kullanıcı bulunamadı.', false); else alert('Kullanıcı bulunamadı.'); return false; }
     const pkg=getPackages().find(p=>p.id===select?.value);
+    const siteUrl=((form.querySelector('[name="siteUrl"]')?.value)||'').trim();
     if(!pkg){ if(msg) showMessage(msg, 'Paket seç.', false); else alert('Paket seç.'); return false; }
+    if(!siteUrl){ if(msg) showMessage(msg, 'Yorum alınacak site linkini yaz.', false); else alert('Yorum alınacak site linkini yaz.'); return false; }
     const currentBalance = await sbGetProfileBalance(profile);
     if(currentBalance < Number(pkg.price||0)){
       if(msg) showMessage(msg, 'Yetersiz bakiye.', false); else alert('Yetersiz bakiye.');
@@ -2760,6 +2762,7 @@ async function sbBindPackagePurchase(){
       package_id: pkg.id,
       package_name: pkg.name,
       amount: Number(pkg.price||0),
+      site_url: siteUrl,
       status: 'pending',
       stage: 'Sipariş alındı',
       timeline: ['Sipariş alındı'],
@@ -2785,7 +2788,7 @@ async function sbRenderOrdersAdmin(){
   if(error){ console.error(error); tbody.innerHTML='<tr><td colspan="6">Siparişler yüklenemedi.</td></tr>'; return; }
   const orders = data || [];
   if(!orders.length){ tbody.innerHTML='<tr><td colspan="6">Henüz sipariş yok.</td></tr>'; return; }
-  tbody.innerHTML = orders.map(order=>`<tr><td>${order.customer || '-'}</td><td>${order.package_name || '-'}</td><td>${fmtMoney(order.amount || 0)}</td><td><span class="badge ${order.status==="completed"?"ok":order.status==="pending"?"warn":"off"}">${order.status === 'completed' ? 'Tamamlandı' : order.status === 'pending' ? 'Beklemede' : order.status === 'rejected' ? 'Reddedildi' : (order.status || '-')}</span></td><td>${order.stage || '-'}</td><td><div class="item-actions"><button class="small-btn gold" data-order-complete="${order.id}">Tamamla</button><button class="small-btn red" data-order-reject="${order.id}">Reddet</button></div></td></tr>`).join('');
+  tbody.innerHTML = orders.map(order=>`<tr><td>${order.customer || '-'}</td><td>${order.package_name || '-'}</td><td>${fmtMoney(order.amount || 0)}</td><td><span class="badge ${order.status==="completed"?"ok":order.status==="pending"?"warn":"off"}">${order.status === 'completed' ? 'Tamamlandı' : order.status === 'pending' ? 'Beklemede' : order.status === 'rejected' ? 'Reddedildi' : (order.status || '-')}</span></td><td>${order.stage || '-'}</td><td>${order.site_url ? `<a href="${order.site_url}" target="_blank" rel="noopener">Site Linki</a>` : '-'}</td><td><div class="item-actions"><button class="small-btn gold" data-order-complete="${order.id}">Tamamla</button><button class="small-btn red" data-order-reject="${order.id}">Reddet</button></div></td></tr>`).join('');
   tbody.querySelectorAll('[data-order-complete]').forEach(btn=>btn.onclick=async()=>{
     const id=btn.getAttribute('data-order-complete');
     const { error } = await supabaseClient.from('orders').update({ status:'completed', stage:'Tamamlandı', timeline:['Sipariş alındı','Tamamlandı'] }).eq('id', id);
@@ -2835,20 +2838,38 @@ async function sbRenderAdminChats(){
   const usersMount=document.getElementById('chatUsers');
   const chatMount=document.getElementById('chatMessages');
   const targetSelect=document.getElementById('adminChatTargetSelect');
+  const searchInput=document.getElementById('adminChatUserSearch');
   if(!usersMount || !chatMount || !supabaseClient) return;
-  const { data: users, error:uErr } = await supabaseClient.from('profiles').select('email,full_name,role').neq('role','admin').order('created_at', { ascending:false });
+  const { data: users, error:uErr } = await supabaseClient.from('profiles').select('email,full_name,role,is_deleted,is_banned').neq('role','admin').order('created_at', { ascending:false });
   if(uErr){ console.error(uErr); usersMount.innerHTML='<div class="status-note">Kullanıcılar yüklenemedi.</div>'; return; }
   const { data: msgs } = await supabaseClient.from('messages').select('user_email,text,created_at').order('created_at', { ascending:false });
-  const usersList = (users || []).map(u=>({email:u.email,name:u.full_name || u.email}));
+  const usersList = (users || [])
+    .filter(u=>!u.is_deleted)
+    .map(u=>({email:u.email,name:u.full_name || u.email,is_banned:!!u.is_banned}));
   const seen = new Set(usersList.map(u=>u.email));
-  (msgs || []).forEach(m=>{ if(m.user_email && !seen.has(m.user_email)){ usersList.push({email:m.user_email,name:m.user_email}); seen.add(m.user_email); } });
-  if(targetSelect){ targetSelect.innerHTML = usersList.length ? usersList.map(u=>`<option value="${u.email}">${u.name} - ${u.email}</option>`).join('') : '<option value="">Kullanıcı yok</option>'; }
-  if(!usersList.length){ usersMount.innerHTML='<div class="status-note">Henüz müşteri veya mesaj yok.</div>'; chatMount.innerHTML='<div class="status-note">Mesaj geçmişi burada görünecek.</div>'; return; }
-  usersMount.innerHTML = usersList.map(u=>{ const last = (msgs || []).find(m=>m.user_email===u.email); return `<div class="item-row"><div><strong>${u.name}</strong><div class="small">${u.email}</div><div class="small">${last ? String(last.text || '').slice(0,40) : 'Mesaj yok'}</div></div><div class="item-actions"><button class="small-btn gold" data-open-chat="${u.email}">Aç</button></div></div>`; }).join('');
-  usersMount.querySelectorAll('[data-open-chat]').forEach(btn=>btn.onclick=async()=>{ const email=btn.getAttribute('data-open-chat'); if(targetSelect) targetSelect.value=email; await sbRenderChatThread(email,true); });
-  const fallback=(targetSelect && targetSelect.value) ? targetSelect.value : usersList[0].email;
-  if(targetSelect) targetSelect.value=fallback;
-  await sbRenderChatThread(fallback,true);
+  (msgs || []).forEach(m=>{ if(m.user_email && !seen.has(m.user_email)){ usersList.push({email:m.user_email,name:m.user_email,is_banned:false}); seen.add(m.user_email); } });
+  const renderSelect = (list)=>{
+    if(!targetSelect) return;
+    targetSelect.innerHTML = list.length ? list.map(u=>`<option value="${u.email}">${u.name} - ${u.email}${u.is_banned?' (Banlı)':''}</option>`).join('') : '<option value="">Kullanıcı yok</option>';
+  };
+  const renderList = async (list)=>{
+    if(!list.length){ usersMount.innerHTML='<div class="status-note">Henüz müşteri veya mesaj yok.</div>'; chatMount.innerHTML='<div class="status-note">Mesaj geçmişi burada görünecek.</div>'; renderSelect([]); return; }
+    renderSelect(list);
+    usersMount.innerHTML = list.map(u=>{ const last = (msgs || []).find(m=>m.user_email===u.email); return `<div class="item-row"><div><strong>${u.name}</strong><div class="small">${u.email}</div><div class="small">${last ? String(last.text || '').slice(0,40) : 'Mesaj yok'}</div></div><div class="item-actions"><button class="small-btn gold" data-open-chat="${u.email}">Aç</button></div></div>`; }).join('');
+    usersMount.querySelectorAll('[data-open-chat]').forEach(btn=>btn.onclick=async()=>{ const email=btn.getAttribute('data-open-chat'); if(targetSelect) targetSelect.value=email; await sbRenderChatThread(email,true); });
+    const fallback=(targetSelect && targetSelect.value) ? targetSelect.value : list[0].email;
+    if(targetSelect) targetSelect.value=fallback;
+    await sbRenderChatThread(fallback,true);
+  };
+  if(searchInput && !searchInput.dataset.bound){
+    searchInput.addEventListener('input', async ()=>{
+      const q=(searchInput.value||'').trim().toLowerCase();
+      const filtered = !q ? usersList : usersList.filter(u=>String(u.name||'').toLowerCase().includes(q) || String(u.email||'').toLowerCase().includes(q));
+      await renderList(filtered);
+    });
+    searchInput.dataset.bound='1';
+  }
+  await renderList(usersList);
 }
 
 function sbBindCustomerChatForm(){
@@ -2882,7 +2903,7 @@ function sbBindAdminChatForm(){
     const textArea=form.querySelector('textarea[name="text"]');
     const target=(targetSelect?.value || '').trim();
     const text=(textArea?.value || '').trim();
-    if(!target){ alert('Önce kullanıcı seç.'); return false; }
+    if(!target){ alert('Önce kullanıcı seç ya da ara.'); return false; }
     if(!text){ alert('Mesaj yaz.'); return false; }
     const s=getSession();
     if(!s){ alert('Oturum bulunamadı.'); return false; }
@@ -3104,6 +3125,7 @@ async function sbRenderActivePackages(){
         <div class="small">Tutar: ${fmtMoney(order.amount || order.price || 0)}</div>
         <div class="small">Son durum: ${order.stage || (String(order.status||'').toLowerCase()==='completed' ? 'Tamamlandı' : String(order.status||'').toLowerCase()==='pending' ? 'Sipariş alındı' : String(order.status||'')) || '-'}</div>
         <div class="small">Tarih: ${order.date || (order.created_at ? new Date(order.created_at).toLocaleDateString('tr-TR') : '-')}</div>
+        <div class="small">Site: ${order.site_url ? `<a href="${order.site_url}" target="_blank" rel="noopener">${order.site_url}</a>` : '-'}</div>
       </div>
       <div>
         <span class="badge ${String(order.status||'').toLowerCase()==='completed'?'ok':String(order.status||'').toLowerCase()==='pending'?'warn':'off'}">${String(order.status||'').toLowerCase()==='completed' ? 'Tamamlandı' : String(order.status||'').toLowerCase()==='pending' ? 'Beklemede' : String(order.status||'').toLowerCase()==='rejected' ? 'Reddedildi' : (order.status || '-')}</span>
