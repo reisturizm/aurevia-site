@@ -2146,6 +2146,10 @@ async function sbGetUser(){
   return data?.user || null;
 }
 
+async function sbGetCurrentAuthUser(){
+  return await sbGetUser();
+}
+
 async function sbGetProfileByUserId(userId){
   if(!supabaseClient || !userId) return null;
   const { data, error } = await supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle();
@@ -2172,7 +2176,7 @@ async function sbEnsureLocalSession(){
   if(!user) return null;
   const profile = await sbGetProfileByUserId(user.id);
   if(!profile) return null;
-  const balance = await sbGetApprovedBalance(profile.id, profile.email);
+  const balance = Number(profile.balance || 0);
   const sessionUser = {
     name: profile.full_name || user.user_metadata?.full_name || user.email || "Kullanıcı",
     email: profile.email || user.email,
@@ -2232,7 +2236,7 @@ async function sbRequireRole(requiredRole){
     window.location.href = "login.html";
     return false;
   }
-  const balance = await sbGetApprovedBalance(profile.id, profile.email);
+  const balance = Number(profile.balance || 0);
   setSession({
     name: profile.full_name || user.user_metadata?.full_name || user.email || "Kullanıcı",
     email: profile.email || user.email,
@@ -2266,7 +2270,7 @@ renderCustomerBalance = async function(){
   const mini=document.getElementById("customerBalanceMini");
   if(!s || (!main && !mini)) return;
   const profile = await sbGetProfileByEmail(s.email);
-  const balance = await sbGetApprovedBalance(profile?.id, s.email);
+  const balance = Number(profile?.balance || 0);
   const text = fmtMoney(balance);
   if(main) main.textContent = text;
   if(mini) mini.textContent = text;
@@ -2455,7 +2459,7 @@ document.addEventListener("DOMContentLoaded", function(){
         if(error){ console.error(error); showMessage(msg, error.message || "Giriş başarısız.", false); return; }
         const profile = await sbGetProfileByUserId(data?.user?.id);
         if(!profile){ showMessage(msg, "Profil bulunamadı.", false); return; }
-        const balance = await sbGetApprovedBalance(profile.id, profile.email);
+        const balance = Number(profile.balance || 0);
         setSession({
           name: profile.full_name || data.user.email,
           email: profile.email || data.user.email,
