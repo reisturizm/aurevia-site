@@ -3416,3 +3416,7 @@ document.addEventListener('DOMContentLoaded', function(){
     setupBalanceInstruction();
   }, 150);
 });
+
+
+// Google Ads Conversion Event
+gtag('event', 'ads_conversion_Ki_1_1', {});
