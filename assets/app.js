@@ -998,6 +998,9 @@ function bindCustomerBalanceForm(){
   const rep=form.querySelector('[name="representative"]');
   if(rep && !rep.value) rep.value = getSettings().representativeName || "Yasin";
   form.addEventListener("submit", e=>{
+    if(supabaseClient){
+      return;
+    }
     e.preventDefault();
     const s=getSession();
     if(!s) return;
@@ -1152,6 +1155,9 @@ function bindCustomerChatForm(){
   const form=document.getElementById("customerChatForm");
   if(!form || form.dataset.bound==="1") return;
   form.addEventListener("submit", function(e){
+    if(supabaseClient){
+      return;
+    }
     e.preventDefault();
     const s=getSession();
     if(!s){ alert("Oturum bulunamadı."); return; }
@@ -2646,6 +2652,7 @@ async function sbSavePackagesFromLocal(){
 document.addEventListener("DOMContentLoaded", function(){
   setTimeout(async function(){
     await sbLoadPackagesToLocal();
+    try{ if(typeof sbBindPackagePurchase === 'function') sbBindPackagePurchase(); }catch(e){ console.warn(e); }
   }, 300);
 });
 
