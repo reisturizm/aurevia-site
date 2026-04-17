@@ -2898,6 +2898,12 @@ function sbBindAdminChatForm(){
   };
 }
 
+document.addEventListener('click', function(e){
+  const a = e.target.closest && e.target.closest('a[href="index.html"], a[href="./index.html"], a[href="/"], a[href="/"]');
+  if(!a) return;
+  // public sayfalara dönerken çıkış yapma; sadece link normal çalışsın
+});
+
 document.addEventListener('DOMContentLoaded', function(){
   setTimeout(async function(){
     if(!supabaseClient) return;
@@ -2971,8 +2977,17 @@ renderBalanceRequests = async function(){
       : await sbGetProfileByEmail(req.email);
     if(!targetProfile){ alert('Kullanıcı profili bulunamadı.'); return; }
     const newBalance = Number(targetProfile.balance || 0) + Number(req.amount || 0);
-    const { error: balErr } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', targetProfile.id);
-    if(balErr){ console.error(balErr); alert('Bakiye güncellenemedi.'); return; }
+    let balErr = null;
+    if(targetProfile.id){
+      const res = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', targetProfile.id);
+      balErr = res.error || null;
+    }
+    if(balErr && req.email){
+      console.warn('ID ile bakiye güncelleme başarısız, email ile yeniden deneniyor.', balErr);
+      const retry = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('email', req.email);
+      balErr = retry.error || null;
+    }
+    if(balErr){ console.error(balErr); alert('Bakiye güncellenemedi. Önce SUPABASE_EXTRA_TABLES_SQL.txt içindeki SQL'i çalıştır.'); return; }
     const { error: upErr } = await supabaseClient.from('balance_requests').update({ status: 'approved' }).eq('id', id);
     if(upErr){ console.error(upErr); alert('Talep onaylanamadı.'); return; }
     try{ await sbRefreshPublicSession(); }catch(e){}
@@ -3061,6 +3076,12 @@ window.renderProfileRequestsAdmin = async function(){
     renderProfileRequestsAdmin();
   }));
 };
+
+document.addEventListener('click', function(e){
+  const a = e.target.closest && e.target.closest('a[href="index.html"], a[href="./index.html"], a[href="/"], a[href="/"]');
+  if(!a) return;
+  // public sayfalara dönerken çıkış yapma; sadece link normal çalışsın
+});
 
 document.addEventListener('DOMContentLoaded', function(){
   setTimeout(async function(){
