@@ -3073,53 +3073,306 @@ document.addEventListener('DOMContentLoaded', function(){
 /* ===== end v40 ===== */
 
 
-/* ===== Supabase active packages fix ===== */
-async function sbRenderActivePackages(){
-  const mount = document.getElementById('activePackagesList');
-  if(!mount || !supabaseClient) return;
-  const profile = await sbGetCurrentProfile();
-  if(!profile){
-    mount.innerHTML = '<div class="status-note">Henüz aktif paketin yok.</div>';
-    return;
+/* ===== vHome KPI + robust settings sync ===== */
+let __siteSettingsSyncTimer = null;
+async function sbSaveSettingsSnapshot(snapshot){
+  try{
+    if(!supabaseClient) return false;
+    const payload = { id: 1, data: snapshot, updated_at: new Date().toISOString() };
+    const { error } = await supabaseClient.from("site_settings").upsert([payload], { onConflict: "id" });
+    if(error){ console.error("site_settings snapshot save error:", error); return false; }
+    return true;
+  }catch(err){
+    console.error("site_settings snapshot save error:", err);
+    return false;
   }
-  const { data, error } = await supabaseClient
-    .from('orders')
-    .select('*')
-    .eq('user_id', profile.id)
-    .order('created_at', { ascending:false });
-  if(error){
-    console.error(error);
-    mount.innerHTML = '<div class="status-note">Aktif paketler yüklenemedi.</div>';
-    return;
-  }
-  const orders = (data || []).filter(o => String(o.status || '').toLowerCase() !== 'rejected');
-  if(!orders.length){
-    mount.innerHTML = '<div class="status-note">Henüz aktif paketin yok.</div>';
-    return;
-  }
-  mount.innerHTML = orders.map(order => `
-    <div class="item-row">
-      <div>
-        <strong>${order.package_name || order.packageName || '-'}</strong>
-        <div class="small">Tutar: ${fmtMoney(order.amount || order.price || 0)}</div>
-        <div class="small">Son durum: ${order.stage || (String(order.status||'').toLowerCase()==='completed' ? 'Tamamlandı' : String(order.status||'').toLowerCase()==='pending' ? 'Sipariş alındı' : String(order.status||'')) || '-'}</div>
-        <div class="small">Tarih: ${order.date || (order.created_at ? new Date(order.created_at).toLocaleDateString('tr-TR') : '-')}</div>
-      </div>
-      <div>
-        <span class="badge ${String(order.status||'').toLowerCase()==='completed'?'ok':String(order.status||'').toLowerCase()==='pending'?'warn':'off'}">${String(order.status||'').toLowerCase()==='completed' ? 'Tamamlandı' : String(order.status||'').toLowerCase()==='pending' ? 'Beklemede' : String(order.status||'').toLowerCase()==='rejected' ? 'Reddedildi' : (order.status || '-')}</span>
-      </div>
-    </div>
-  `).join('');
+}
+
+try{
+  const __originalSaveSettings = saveSettings;
+  saveSettings = function(v){
+    __originalSaveSettings(v);
+    clearTimeout(__siteSettingsSyncTimer);
+    __siteSettingsSyncTimer = setTimeout(function(){ sbSaveSettingsSnapshot(getSettings()); }, 250);
+  };
+  window.saveSettings = saveSettings;
+}catch(e){ console.warn('saveSettings override warning', e); }
+
+async function sbEnsureSettingsHydrated(){
+  try{
+    const loaded = await sbLoadSiteSettingsToLocal();
+    if(!loaded){ await sbSaveSettingsSnapshot(getSettings()); }
+    try{ syncGlobalText(); }catch(e){}
+    try{ fillSettingsForm(); }catch(e){}
+  }catch(err){ console.warn('sbEnsureSettingsHydrated warning', err); }
 }
 
 document.addEventListener('DOMContentLoaded', function(){
-  setTimeout(async function(){
-    try{ await sbRenderActivePackages(); }catch(e){ console.error(e); }
-    document.querySelectorAll('[data-tab-btn="activePackages"]').forEach(btn=>{
-      btn.addEventListener('click', async function(){
-        try{ await sbRenderActivePackages(); }catch(e){ console.error(e); }
-      });
-    });
-  }, 500);
+  setTimeout(sbEnsureSettingsHydrated, 120);
 });
-/* ===== end Supabase active packages fix ===== */
+
+async function homeAnimateActiveRequests(){
+  const countEl = document.getElementById('homeActiveRequestsCount');
+  const barEl = document.getElementById('homeActiveRequestsBar');
+  if(!countEl || !barEl) return;
+
+  let baseCount = Number(countEl.getAttribute('data-base') || countEl.textContent || 0) || 0;
+  let displayed = baseCount;
+  let phase = 0;
+
+  async function refreshBase(){
+    try{
+      if(!supabaseClient) return;
+      const { count, error } = await supabaseClient
+        .from('balance_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending');
+      if(!error && typeof count === 'number'){
+        baseCount = count;
+        countEl.setAttribute('data-base', String(baseCount));
+      }
+    }catch(err){ console.warn('home active requests fetch warning', err); }
+  }
+
+  function frame(){
+    phase += 0.18;
+    const fluctuation = Math.round(Math.sin(phase) * 2 + Math.cos(phase * 0.55) * 1);
+    const target = Math.max(0, baseCount + fluctuation);
+    displayed += (target - displayed) * 0.2;
+    const shown = Math.max(0, Math.round(displayed));
+    countEl.textContent = shown.toLocaleString('tr-TR');
+    const pct = Math.max(12, Math.min(96, 24 + shown * 0.8));
+    barEl.style.width = pct + '%';
+  }
+
+  await refreshBase();
+  frame();
+  setInterval(frame, 180);
+  setInterval(refreshBase, 15000);
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  if(document.body && document.body.getAttribute('data-page-id') === 'home'){
+    setTimeout(homeAnimateActiveRequests, 250);
+  }
+});
+
+/* ===== vNext admin-chat-all-users + settings bg save fix ===== */
+async function optimizedImageToDataUrl(file, progressId){
+  const raw = await fileToDataUrlSafe(file, progressId);
+  try{
+    if(!file.type || !file.type.startsWith('image/')) return raw;
+    const img = new Image();
+    const loaded = await new Promise((resolve,reject)=>{
+      img.onload = ()=>resolve(true);
+      img.onerror = ()=>reject(new Error('Görsel yüklenemedi'));
+      img.src = raw;
+    });
+    if(!loaded) return raw;
+    const maxW = 1600;
+    const scale = Math.min(1, maxW / (img.width || maxW));
+    const w = Math.max(1, Math.round((img.width || maxW) * scale));
+    const h = Math.max(1, Math.round((img.height || 900) * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL('image/jpeg', 0.82);
+  }catch(err){
+    console.warn('optimizedImageToDataUrl warning', err);
+    return raw;
+  }
+}
+
+window.getAdminChatUsers = async function(){
+  const users = [];
+  const seen = new Set();
+  try{
+    if(supabaseClient){
+      const { data } = await supabaseClient
+        .from('profiles')
+        .select('email,full_name,role')
+        .order('created_at', { ascending: true });
+      (data || []).forEach(u=>{
+        const role = (u.role || '').toLowerCase();
+        if(u.email && role !== 'admin' && !seen.has(u.email)){
+          users.push({ email: u.email, name: u.full_name || u.email });
+          seen.add(u.email);
+        }
+      });
+    }
+  }catch(err){ console.warn('admin chat users supabase warning', err); }
+  try{
+    getUsers().forEach(u=>{
+      if(u.email && u.role !== 'admin' && !seen.has(u.email)){
+        users.push({ email:u.email, name:u.name || u.company || u.email });
+        seen.add(u.email);
+      }
+    });
+  }catch(e){}
+  try{
+    getChats().forEach(c=>{
+      if(c.userEmail && !seen.has(c.userEmail)){
+        users.push({ email:c.userEmail, name:c.senderRole === 'user' ? (c.senderName || c.userEmail) : c.userEmail });
+        seen.add(c.userEmail);
+      }
+    });
+  }catch(e){}
+  return users;
+};
+
+window.renderAdminChats = async function(){
+  const usersMount = document.getElementById('chatUsers');
+  const chatMount = document.getElementById('chatMessages');
+  const targetSelect = document.getElementById('adminChatTargetSelect');
+  if(!usersMount || !chatMount) return;
+
+  const users = await window.getAdminChatUsers();
+  let chats = [];
+  try{ chats = getChats(); }catch(e){}
+
+  if(targetSelect){
+    const current = targetSelect.value || '';
+    targetSelect.innerHTML = users.length
+      ? users.map(u => `<option value="${u.email}">${u.name} - ${u.email}</option>`).join('')
+      : '<option value="">Kullanıcı yok</option>';
+    if(current && users.some(u=>u.email===current)) targetSelect.value = current;
+  }
+
+  if(!users.length){
+    usersMount.innerHTML = '<div class="status-note">Kayıtlı kullanıcı yok.</div>';
+    chatMount.innerHTML = '<div class="status-note">Mesaj geçmişi burada görünecek.</div>';
+    return;
+  }
+
+  usersMount.innerHTML = users.map(u=>{
+    const userChats = chats.filter(c => c.userEmail === u.email);
+    const lastMsg = userChats.length ? userChats[userChats.length-1] : null;
+    return `
+      <div class="item-row">
+        <div>
+          <strong>${u.name}</strong>
+          <div class="small">${u.email}</div>
+          <div class="small">${lastMsg ? (lastMsg.text || '').slice(0,40) : 'Mesaj yok'}</div>
+        </div>
+        <div class="item-actions">
+          <button class="small-btn gold" data-open-chat="${u.email}">Aç</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  usersMount.querySelectorAll('[data-open-chat]').forEach(btn=>{
+    btn.onclick = function(){
+      const email = btn.getAttribute('data-open-chat');
+      if(targetSelect) targetSelect.value = email;
+      window.renderChatThread(email, true);
+      const ok = document.getElementById('adminChatStatus');
+      if(ok){ ok.textContent = 'Sohbet açıldı.'; ok.className = 'msg ok'; }
+    };
+  });
+
+  const activeEmail = (targetSelect && targetSelect.value) ? targetSelect.value : users[0].email;
+  if(targetSelect) targetSelect.value = activeEmail;
+  window.renderChatThread(activeEmail, true);
+};
+
+window.bindAdminChatForm = function(){
+  const form = document.getElementById('adminChatForm');
+  if(!form) return;
+  form.onsubmit = async function(e){
+    e.preventDefault();
+    const targetSelect = document.getElementById('adminChatTargetSelect');
+    const ta = form.querySelector('textarea[name="text"]');
+    const target = ((targetSelect && targetSelect.value) || '').trim();
+    const text = ((ta && ta.value) || '').trim();
+    if(!target){ alert('Önce kullanıcı seç.'); return false; }
+    if(!text){ alert('Mesaj yaz.'); return false; }
+    const s = getSession && getSession();
+    if(!s){ alert('Oturum bulunamadı.'); return false; }
+    const chats = getChats();
+    chats.push({
+      id: 'msg_' + Date.now(),
+      userEmail: target,
+      senderRole: 'admin',
+      senderName: s.name || 'Admin',
+      text,
+      date: currentDateTR(),
+      createdAt: new Date().toISOString()
+    });
+    saveChats(chats);
+    if(ta) ta.value = '';
+    await window.renderAdminChats();
+    window.renderChatThread(target, true);
+    const ok = document.getElementById('adminChatStatus');
+    if(ok){ ok.textContent = 'Mesaj gönderildi.'; ok.className = 'msg ok'; }
+    return false;
+  };
+};
+
+window.saveSettingsFields = async function(fieldsCsv, feedbackId){
+  const form = document.getElementById('settingsForm');
+  if(!form){ alert('Kaydedilemedi.'); return; }
+  const fields = fieldsCsv.split(',').map(s=>s.trim()).filter(Boolean);
+  let next = { ...getSettings() };
+  try{
+    fields.forEach(field=>{
+      const el = form.querySelector(`[name="${field}"]`);
+      if(el) next[field] = el.value;
+    });
+
+    const fileMap = {
+      heroImage:['heroImageFile','heroImagePending'], heroVideo:['heroVideoFile','heroVideoPending'],
+      pricingImage:['pricingImageFile','pricingImagePending'], pricingVideo:['pricingVideoFile','pricingVideoPending'],
+      servicesImage:['servicesImageFile','servicesImagePending'], servicesVideo:['servicesVideoFile','servicesVideoPending'],
+      siteLogo:['siteLogoFile','siteLogoPending'],
+      bg_home:['bgHomeFile','bgHomePending'], bg_services:['bgServicesFile','bgServicesPending'],
+      bg_pricing:['bgPricingFile','bgPricingPending'], bg_about:['bgAboutFile','bgAboutPending'],
+      bg_contact:['bgContactFile','bgContactPending'], bg_login:['bgLoginFile','bgLoginPending'],
+      bg_register:['bgRegisterFile','bgRegisterPending'], bg_admin:['bgAdminFile','bgAdminPending'],
+      bg_customer:['bgCustomerFile','bgCustomerPending']
+    };
+
+    for(const field of fields){
+      const pair = fileMap[field];
+      if(!pair) continue;
+      const [fileField, progressId] = pair;
+      const input = form.querySelector(`[name="${fileField}"]`);
+      if(input && input.files && input.files[0]){
+        const file = input.files[0];
+        if((file.type || '').startsWith('image/')) next[field] = await optimizedImageToDataUrl(file, progressId);
+        else next[field] = await fileToDataUrlSafe(file, progressId);
+        input.value = '';
+      }
+    }
+
+    saveSettings(next);
+    try{ fillSettingsForm(); }catch(e){}
+    try{ syncGlobalText(); }catch(e){}
+    try{ renderPricingCards(); }catch(e){}
+    try{ renderPackageShowcaseCards(); }catch(e){}
+    try{ if(typeof sbSaveSettingsSnapshot === 'function') await sbSaveSettingsSnapshot(next); }catch(e){ console.warn(e); }
+
+    const msg = document.getElementById('settingsMsg');
+    if(msg) showMessage(msg, 'Kaydedildi.');
+    if(feedbackId){
+      const fb = document.getElementById(feedbackId);
+      if(fb){ fb.textContent='Bu bölüm kaydedildi.'; fb.classList.add('show'); setTimeout(()=>fb.classList.remove('show'), 1800); }
+    }
+    alert('Kaydedildi.');
+  }catch(err){
+    console.error('saveSettingsFields error:', err);
+    const msg = document.getElementById('settingsMsg');
+    if(msg) showMessage(msg, 'Kaydedilemedi.', false);
+    alert('Kaydedilemedi.');
+  }
+};
+
+document.addEventListener('DOMContentLoaded', function(){
+  setTimeout(function(){
+    try{ window.bindAdminChatForm(); }catch(e){ console.error(e); }
+    try{ window.renderAdminChats(); }catch(e){ console.error(e); }
+  }, 180);
+});
+/* ===== end vNext ===== */
