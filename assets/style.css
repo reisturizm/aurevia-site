@@ -205,3 +205,11 @@ body{
 .btn-whatsapp:hover{border-color:rgba(37,211,102,.75);background:rgba(37,211,102,.12)}
 .wa-icon{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:0 0 20px}
 .wa-icon svg{width:20px;height:20px;display:block}
+
+
+/* final whatsapp-like chat colors */
+.chat-msg{max-width:78%;padding:12px 14px;border-radius:16px;margin:10px 0;line-height:1.45;border:1px solid rgba(212,175,55,.18)}
+.chat-msg.user{margin-left:auto;background:rgba(212,175,55,.18);border-bottom-right-radius:6px}
+.chat-msg.admin{margin-right:auto;background:rgba(255,255,255,.06);border-bottom-left-radius:6px}
+.chat-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:6px}
+#chatMessages,#customerChatMessages{display:flex;flex-direction:column;gap:4px;overflow-y:auto}

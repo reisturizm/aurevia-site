@@ -3123,3 +3123,212 @@ document.addEventListener('DOMContentLoaded', function(){
   }, 500);
 });
 /* ===== end Supabase active packages fix ===== */
+
+
+/* ===== FINAL ADMIN BAN/DELETE + BALANCE CONTROL + CHAT STYLE PATCH ===== */
+async function sbGetProfileByEmail(email){
+  if(!supabaseClient || !email) return null;
+  const { data } = await supabaseClient.from('profiles').select('*').eq('email', email).maybeSingle();
+  return data || null;
+}
+async function sbBlockedProfile(profile){
+  return !!(profile && (profile.is_banned === true || profile.is_deleted === true));
+}
+async function sbEnforceCurrentSessionActive(){
+  if(!supabaseClient) return true;
+  const { data } = await supabaseClient.auth.getUser();
+  const user = data?.user;
+  if(!user) return false;
+  const profile = await sbGetProfileByUserId(user.id);
+  if(!profile) return false;
+  if(await sbBlockedProfile(profile)){
+    alert(profile.is_deleted ? 'Bu hesap silinmiş.' : 'Bu hesap banlanmış.');
+    try{ await supabaseClient.auth.signOut(); }catch(e){}
+    localStorage.removeItem(SESSION_KEY);
+    window.location.href = 'login.html';
+    return false;
+  }
+  return true;
+}
+
+renderUsersAdmin = async function(){
+  const mount=document.getElementById('usersList');
+  if(!mount || !supabaseClient) return;
+  const { data, error } = await supabaseClient
+    .from('profiles')
+    .select('id,email,full_name,role,balance,is_banned,is_deleted,created_at')
+    .order('created_at', { ascending: false });
+  if(error){ console.error(error); mount.innerHTML='<div class="status-note">Kullanıcılar yüklenemedi.</div>'; return; }
+  if(!data || !data.length){ mount.innerHTML='<div class="status-note">Henüz kullanıcı yok.</div>'; return; }
+  mount.innerHTML = data.map(user=>{
+    const blocked = user.is_deleted ? 'Silinmiş' : user.is_banned ? 'Banlı' : 'Aktif';
+    const badge = user.is_deleted ? 'off' : user.is_banned ? 'warn' : 'ok';
+    const roleText = normalizeAppRole(user.role || 'customer') === 'admin' ? 'Admin' : 'Müşteri';
+    return `
+      <div class="item-row">
+        <div>
+          <strong>${user.full_name || 'Kullanıcı'}</strong>
+          <div class="small">${user.email} • ${roleText}</div>
+          <div class="small">Bakiye: ${fmtMoney(user.balance || 0)} • <span class="badge ${badge}">${blocked}</span></div>
+        </div>
+        <div class="item-actions">
+          ${roleText !== 'Admin' ? `
+            <button class="small-btn green" data-plus-balance="${user.id}">+ Bakiye</button>
+            <button class="small-btn red" data-minus-balance="${user.id}">- Bakiye</button>
+            <button class="small-btn gold" data-toggle-ban="${user.id}">${user.is_banned ? 'Ban Kaldır' : 'Banla'}</button>
+            <button class="small-btn red" data-soft-delete="${user.id}">Hesabı Sil</button>
+          ` : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  mount.querySelectorAll('[data-plus-balance]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const id=btn.getAttribute('data-plus-balance');
+    const amount=Number(prompt('Eklenecek bakiye tutarı'));
+    if(!amount || amount<=0) return;
+    const profile = await sbGetProfileByUserId(id);
+    if(!profile) return alert('Kullanıcı bulunamadı.');
+    const newBalance = Number(profile.balance || 0) + amount;
+    const { error } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', id);
+    if(error){ console.error(error); return alert('Bakiye eklenemedi.'); }
+    await renderUsersAdmin();
+    try{ await renderCustomerBalance(); }catch(e){}
+  }));
+
+  mount.querySelectorAll('[data-minus-balance]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const id=btn.getAttribute('data-minus-balance');
+    const amount=Number(prompt('Düşülecek bakiye tutarı'));
+    if(!amount || amount<=0) return;
+    const profile = await sbGetProfileByUserId(id);
+    if(!profile) return alert('Kullanıcı bulunamadı.');
+    const newBalance = Math.max(0, Number(profile.balance || 0) - amount);
+    const { error } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', id);
+    if(error){ console.error(error); return alert('Bakiye düşürülemedi.'); }
+    await renderUsersAdmin();
+    try{ await renderCustomerBalance(); }catch(e){}
+  }));
+
+  mount.querySelectorAll('[data-toggle-ban]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const id=btn.getAttribute('data-toggle-ban');
+    const profile = await sbGetProfileByUserId(id);
+    if(!profile) return alert('Kullanıcı bulunamadı.');
+    const next = !profile.is_banned;
+    const { error } = await supabaseClient.from('profiles').update({ is_banned: next }).eq('id', id);
+    if(error){ console.error(error); return alert('Ban işlemi yapılamadı.'); }
+    await renderUsersAdmin();
+    alert(next ? 'Kullanıcı banlandı.' : 'Kullanıcı banı kaldırıldı.');
+  }));
+
+  mount.querySelectorAll('[data-soft-delete]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const id=btn.getAttribute('data-soft-delete');
+    if(!confirm('Bu hesabı yumuşak silmek istiyor musun?')) return;
+    const { error } = await supabaseClient.from('profiles').update({ is_deleted:true, is_banned:true }).eq('id', id);
+    if(error){ console.error(error); return alert('Hesap silinemedi.'); }
+    await renderUsersAdmin();
+    alert('Hesap silindi.');
+  }));
+};
+
+renderBalanceRequests = async function(){
+  const mount=document.getElementById('requestList');
+  if(!mount || !supabaseClient) return;
+  const { data, error } = await supabaseClient.from('balance_requests').select('*').order('created_at', { ascending: false });
+  if(error){ console.error(error); mount.innerHTML='<div class="status-note">Bakiye talepleri yüklenemedi.</div>'; return; }
+  if(!data || !data.length){ mount.innerHTML='<div class="status-note">Henüz bakiye talebi yok.</div>'; return; }
+  mount.innerHTML = data.map(req=>`
+    <div class="item-row">
+      <div>
+        <strong>${req.full_name || 'Kullanıcı'}</strong>
+        <div class="small">${req.email || '-'} • ${fmtMoney(req.amount)} • ${req.note || '-'}</div>
+        <div class="small">Durum: ${req.status === 'pending' ? 'Bekliyor' : req.status === 'approved' ? 'Onaylandı' : 'Reddedildi'}</div>
+      </div>
+      <div class="item-actions">
+        ${req.status === 'pending' ? `<button class="small-btn green" data-sb-approve="${req.id}">Onayla</button><button class="small-btn red" data-sb-reject="${req.id}">Reddet</button>` : ''}
+        ${req.status === 'approved' ? `<button class="small-btn red" data-sb-refund="${req.id}">Geri Al</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  mount.querySelectorAll('[data-sb-approve]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const id=btn.getAttribute('data-sb-approve');
+    const { data:req, error:reqErr } = await supabaseClient.from('balance_requests').select('*').eq('id', id).maybeSingle();
+    if(reqErr || !req){ console.error(reqErr); return alert('Talep bulunamadı.'); }
+    const targetProfile = req.user_id ? await sbGetProfileByUserId(req.user_id) : await sbGetProfileByEmail(req.email);
+    if(!targetProfile) return alert('Kullanıcı profili bulunamadı.');
+    const newBalance = Number(targetProfile.balance || 0) + Number(req.amount || 0);
+    const { error: balErr } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', targetProfile.id);
+    if(balErr){ console.error(balErr); return alert('Bakiye güncellenemedi.'); }
+    const { error: upErr } = await supabaseClient.from('balance_requests').update({ status:'approved' }).eq('id', id);
+    if(upErr){ console.error(upErr); return alert('Talep onaylanamadı.'); }
+    await renderBalanceRequests(); await renderAdminSummary(); await renderUsersAdmin();
+    try{ await renderCustomerBalance(); await renderCustomerRequests(); }catch(e){}
+  }));
+
+  mount.querySelectorAll('[data-sb-reject]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const id=btn.getAttribute('data-sb-reject');
+    const { error } = await supabaseClient.from('balance_requests').update({ status:'rejected' }).eq('id', id);
+    if(error){ console.error(error); return alert('Reddedilemedi.'); }
+    await renderBalanceRequests(); await renderAdminSummary();
+  }));
+
+  mount.querySelectorAll('[data-sb-refund]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const id=btn.getAttribute('data-sb-refund');
+    const { data:req, error:reqErr } = await supabaseClient.from('balance_requests').select('*').eq('id', id).maybeSingle();
+    if(reqErr || !req) return alert('Talep bulunamadı.');
+    const targetProfile = req.user_id ? await sbGetProfileByUserId(req.user_id) : await sbGetProfileByEmail(req.email);
+    if(!targetProfile) return alert('Kullanıcı profili bulunamadı.');
+    const newBalance = Math.max(0, Number(targetProfile.balance || 0) - Number(req.amount || 0));
+    const { error: balErr } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', targetProfile.id);
+    if(balErr){ console.error(balErr); return alert('Bakiye geri alınamadı.'); }
+    const { error: upErr } = await supabaseClient.from('balance_requests').update({ status:'rejected' }).eq('id', id);
+    if(upErr){ console.error(upErr); return alert('Talep güncellenemedi.'); }
+    await renderBalanceRequests(); await renderAdminSummary(); await renderUsersAdmin();
+    try{ await renderCustomerBalance(); await renderCustomerRequests(); }catch(e){}
+  }));
+};
+
+// login override for ban/delete
+window.__sbFinalLoginPatch = true;
+document.addEventListener('DOMContentLoaded', function(){
+  setTimeout(function(){
+    const login=document.getElementById('loginForm');
+    if(!login || !supabaseClient) return;
+    const cloned=login.cloneNode(true);
+    login.parentNode.replaceChild(cloned, login);
+    cloned.addEventListener('submit', async function(e){
+      e.preventDefault();
+      const msg=document.getElementById('loginMsg');
+      const fd=Object.fromEntries(new FormData(cloned).entries());
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email: String(fd.email || '').trim(),
+        password: String(fd.password || '')
+      });
+      if(error){ console.error(error); showMessage(msg, error.message || 'Giriş başarısız.', false); return; }
+      const profile = await sbGetProfileByUserId(data?.user?.id);
+      if(!profile){ showMessage(msg, 'Profil bulunamadı.', false); return; }
+      if(profile.is_deleted || profile.is_banned){
+        try{ await supabaseClient.auth.signOut(); }catch(e){}
+        showMessage(msg, profile.is_deleted ? 'Bu hesap silinmiş.' : 'Bu hesap banlanmış.', false);
+        return;
+      }
+      const balance = Number(profile.balance || 0);
+      setSession({
+        name: profile.full_name || data.user.email,
+        email: profile.email || data.user.email,
+        role: normalizeAppRole(profile.role || 'customer'),
+        company: profile.full_name || '',
+        balance: balance,
+        isActive: true
+      });
+      showMessage(msg, 'Giriş başarılı. Panel açılıyor...');
+      const appRole = normalizeAppRole(profile.role);
+      setTimeout(()=>{ window.location.href = (appRole === 'admin') ? 'admin.html' : 'customer.html'; }, 500);
+    });
+  }, 220);
+
+  setTimeout(async function(){
+    if(document.body && (document.body.getAttribute('data-page-id') === 'customer' || document.body.getAttribute('data-page-id') === 'admin')){
+      await sbEnforceCurrentSessionActive();
+    }
+  }, 350);
+});
