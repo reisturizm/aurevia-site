@@ -736,17 +736,9 @@ function forceOpenMessagesTab(scope){
 function setActiveTab(scope, target){
   const buttons = document.querySelectorAll(`.${scope} [data-tab-btn]`);
   const sections = document.querySelectorAll(`.${scope}-content [data-tab-section]`);
-  let activeSection = null;
   buttons.forEach(x=>x.classList.toggle("active", x.getAttribute("data-tab-btn")===target));
-  sections.forEach(sec=>{
-    const isActive = sec.getAttribute("data-tab-section")===target;
-    sec.classList.toggle("active", isActive);
-    if(isActive) activeSection = sec;
-  });
+  sections.forEach(sec=>sec.classList.toggle("active", sec.getAttribute("data-tab-section")===target));
   const state=getTabState(); state[scope]=target; saveTabState(state);
-  if(activeSection){
-    setTimeout(()=>activeSection.scrollIntoView({behavior:"smooth", block:"start"}), 60);
-  }
 }
 
 
@@ -1006,9 +998,6 @@ function bindCustomerBalanceForm(){
   const rep=form.querySelector('[name="representative"]');
   if(rep && !rep.value) rep.value = getSettings().representativeName || "Yasin";
   form.addEventListener("submit", e=>{
-    if(supabaseClient){
-      return;
-    }
     e.preventDefault();
     const s=getSession();
     if(!s) return;
@@ -1044,7 +1033,6 @@ function renderCustomerOrders(){
   const tbody=document.getElementById("customerOrdersTableBody");
   const s=getSession();
   if(!tbody || !s) return;
-  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
   const key = s.company || s.name;
   const orders=getOrders().filter(o=>o.customerEmail===s.email || o.customer===key).slice().reverse();
   if(!orders.length){
@@ -1066,7 +1054,6 @@ function renderCustomerOrderTracking(){
   const mount=document.getElementById("orderTracking");
   const s=getSession();
   if(!mount || !s) return;
-  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
   const key = s.company || s.name;
   const orders=getOrders().filter(o=>o.customerEmail===s.email || o.customer===key);
   if(!orders.length){
@@ -1087,7 +1074,6 @@ function renderCustomerOrderTracking(){
 }
 
 function bindPackagePurchase(){
-  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
   const form=document.getElementById("packageBuyForm");
   if(!form || form.dataset.bound==="1") return;
   const select=form.querySelector('select[name="packageId"]');
@@ -1145,7 +1131,6 @@ function renderCustomerChat(){
   const s=getSession();
   const mount=document.getElementById("customerChatMessages");
   if(!s || !mount) return;
-  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
   const msgs=getChats().filter(c=>c.userEmail===s.email).slice().sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0));
   if(!msgs.length){
     mount.innerHTML='<div class="status-note">Henüz mesaj yok.</div>';
@@ -1167,9 +1152,6 @@ function bindCustomerChatForm(){
   const form=document.getElementById("customerChatForm");
   if(!form || form.dataset.bound==="1") return;
   form.addEventListener("submit", function(e){
-    if(supabaseClient){
-      return;
-    }
     e.preventDefault();
     const s=getSession();
     if(!s){ alert("Oturum bulunamadı."); return; }
@@ -1223,7 +1205,6 @@ function renderAdminChats(){
   const chatMount=document.getElementById("chatMessages");
   const targetSelect=document.getElementById("adminChatTargetSelect");
   if(!usersMount || !chatMount) return;
-  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
 
   const users=getUsers().filter(u=>u.role==="customer");
   const chats=getChats();
@@ -1345,7 +1326,6 @@ function renderAdminChats(){
   const chatMount=document.getElementById("chatMessages");
   const targetSelect=document.getElementById("adminChatTargetSelect");
   if(!usersMount || !chatMount) return;
-  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
 
   const users=getAdminChatUsers();
   const chats=getChats();
@@ -2154,10 +2134,6 @@ async function sbGetUser(){
   return data?.user || null;
 }
 
-async function sbGetCurrentAuthUser(){
-  return await sbGetUser();
-}
-
 async function sbGetProfileByUserId(userId){
   if(!supabaseClient || !userId) return null;
   const { data, error } = await supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle();
@@ -2184,11 +2160,11 @@ async function sbEnsureLocalSession(){
   if(!user) return null;
   const profile = await sbGetProfileByUserId(user.id);
   if(!profile) return null;
-  const balance = Number(profile.balance || 0);
+  const balance = await sbGetApprovedBalance(profile.id, profile.email);
   const sessionUser = {
     name: profile.full_name || user.user_metadata?.full_name || user.email || "Kullanıcı",
     email: profile.email || user.email,
-    role: normalizeAppRole(profile.role || "customer"),
+    role: profile.role || "customer",
     company: profile.full_name || "",
     balance: balance,
     isActive: true
@@ -2223,11 +2199,6 @@ requireAuth = function(role){
 
 
 
-
-function normalizeAppRole(role){
-  return role === "admin" ? "admin" : "customer";
-}
-
 async function sbRequireRole(requiredRole){
   if(!supabaseClient) return false;
   const pageId = document.body ? document.body.getAttribute("data-page-id") : "";
@@ -2244,17 +2215,16 @@ async function sbRequireRole(requiredRole){
     window.location.href = "login.html";
     return false;
   }
-  const balance = Number(profile.balance || 0);
+  const balance = await sbGetApprovedBalance(profile.id, profile.email);
   setSession({
     name: profile.full_name || user.user_metadata?.full_name || user.email || "Kullanıcı",
     email: profile.email || user.email,
-    role: normalizeAppRole(profile.role || "customer"),
+    role: profile.role || "customer",
     company: profile.full_name || "",
     balance: balance,
     isActive: true
   });
-  const actualRole = normalizeAppRole(profile.role || "customer");
-  if(requiredRole && actualRole !== requiredRole){
+  if(requiredRole && (profile.role || "customer") !== requiredRole){
     alert("Bu sayfaya erişim yetkin yok.");
     window.location.href = requiredRole === "admin" ? "customer.html" : "admin.html";
     return false;
@@ -2278,7 +2248,7 @@ renderCustomerBalance = async function(){
   const mini=document.getElementById("customerBalanceMini");
   if(!s || (!main && !mini)) return;
   const profile = await sbGetProfileByEmail(s.email);
-  const balance = Number(profile?.balance || 0);
+  const balance = await sbGetApprovedBalance(profile?.id, s.email);
   const text = fmtMoney(balance);
   if(main) main.textContent = text;
   if(mini) mini.textContent = text;
@@ -2467,18 +2437,17 @@ document.addEventListener("DOMContentLoaded", function(){
         if(error){ console.error(error); showMessage(msg, error.message || "Giriş başarısız.", false); return; }
         const profile = await sbGetProfileByUserId(data?.user?.id);
         if(!profile){ showMessage(msg, "Profil bulunamadı.", false); return; }
-        const balance = Number(profile.balance || 0);
+        const balance = await sbGetApprovedBalance(profile.id, profile.email);
         setSession({
           name: profile.full_name || data.user.email,
           email: profile.email || data.user.email,
-          role: normalizeAppRole(profile.role || "customer"),
+          role: profile.role || "customer",
           company: profile.full_name || "",
           balance: balance,
           isActive: true
         });
         showMessage(msg, "Giriş başarılı. Panel açılıyor...");
-        const appRole = normalizeAppRole(profile.role);
-        setTimeout(()=>{ window.location.href = (appRole === "admin") ? "admin.html" : "customer.html"; }, 500);
+        setTimeout(()=>{ window.location.href = (profile.role === "admin") ? "admin.html" : "customer.html"; }, 500);
       });
     }
 
@@ -2512,907 +2481,123 @@ document.addEventListener("DOMContentLoaded", function(){
 /* ===== end v37 ===== */
 
 
-// --- Supabase shared site settings sync ---
-async function sbLoadSiteSettingsToLocal(){
-  try{
-    if(!supabaseClient) return false;
-    const { data, error } = await supabaseClient
-      .from("site_settings")
-      .select("id,data,updated_at")
-      .eq("id", 1)
-      .maybeSingle();
-    if(error){
-      console.warn("site_settings load warning:", error);
-      return false;
-    }
-    if(data && data.data && typeof data.data === "object"){
-      const merged = { ...defaults.settings, ...data.data };
-      saveSettings(merged);
-      try{ fillSettingsForm(); }catch(e){}
-      try{ syncGlobalText(); }catch(e){}
-      try{ renderPricingCards(); }catch(e){}
-      try{ renderPackageShowcaseCards(); }catch(e){}
-      try{ updateBalanceWhatsappButton(); }catch(e){}
-      return true;
-    }
-    return false;
-  }catch(err){
-    console.warn("site_settings load error:", err);
-    return false;
-  }
-}
-
-async function sbSaveSiteSettingsFromLocal(){
-  try{
-    if(!supabaseClient) return false;
-    const payload = {
-      id: 1,
-      data: getSettings(),
-      updated_at: new Date().toISOString()
-    };
-    const { error } = await supabaseClient.from("site_settings").upsert([payload], { onConflict: "id" });
-    if(error){
-      console.error("site_settings save error:", error);
-      return false;
-    }
-    return true;
-  }catch(err){
-    console.error("site_settings save error:", err);
-    return false;
-  }
-}
-
+/* ===== BG SETTINGS HARD FIX PATCH ===== */
 (function(){
+  async function fileToCompressedDataUrl(file, progressId){
+    const isImage = /^image\//i.test(file.type || "");
+    if(!isImage){
+      if(typeof fileToDataUrlSafe === "function") return await fileToDataUrlSafe(file, progressId);
+      if(typeof fileToDataUrl === "function") return await fileToDataUrl(file, progressId);
+      return "";
+    }
+    const rawData = await new Promise((resolve,reject)=>{
+      const r=new FileReader();
+      r.onload=()=>resolve(r.result);
+      r.onerror=()=>reject(new Error("Dosya okunamadı"));
+      r.readAsDataURL(file);
+    });
+    const img = await new Promise((resolve,reject)=>{
+      const i=new Image();
+      i.onload=()=>resolve(i);
+      i.onerror=()=>reject(new Error("Görsel yüklenemedi"));
+      i.src=rawData;
+    });
+    const maxW = 1600;
+    const scale = Math.min(1, maxW / Math.max(1, img.width));
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, w, h);
+    let out = canvas.toDataURL("image/jpeg", 0.78);
+    try{
+      const label=document.getElementById(progressId);
+      if(label) label.textContent = "Sıkıştırıldı ve hazır.";
+      const bar=document.getElementById(progressId+"Bar");
+      if(bar && bar.firstElementChild) bar.firstElementChild.style.width = "100%";
+    }catch(e){}
+    return out;
+  }
+
+  const bgFieldMap = {
+    bg_home:["bgHomeFile","bgHomePending"],
+    bg_services:["bgServicesFile","bgServicesPending"],
+    bg_pricing:["bgPricingFile","bgPricingPending"],
+    bg_about:["bgAboutFile","bgAboutPending"],
+    bg_contact:["bgContactFile","bgContactPending"],
+    bg_login:["bgLoginFile","bgLoginPending"],
+    bg_register:["bgRegisterFile","bgRegisterPending"],
+    bg_admin:["bgAdminFile","bgAdminPending"],
+    bg_customer:["bgCustomerFile","bgCustomerPending"]
+  };
+
   const originalSaveSettingsFields = window.saveSettingsFields;
-  if(typeof originalSaveSettingsFields === "function"){
-    window.saveSettingsFields = async function(fieldsCsv, feedbackId){
-      await originalSaveSettingsFields(fieldsCsv, feedbackId);
-      const ok = await sbSaveSiteSettingsFromLocal();
-      if(ok){
-        const msg=document.getElementById("settingsMsg");
-        if(msg) showMessage(msg, "Ayarlar herkese açık şekilde kaydedildi.");
+  window.saveSettingsFields = async function(fieldsCsv, feedbackId){
+    const fields = String(fieldsCsv || "").split(",").map(s=>s.trim()).filter(Boolean);
+    const hasOnlyBackgrounds = fields.length && fields.every(f => f in bgFieldMap);
+
+    if(!hasOnlyBackgrounds && typeof originalSaveSettingsFields === "function"){
+      return await originalSaveSettingsFields(fieldsCsv, feedbackId);
+    }
+
+    const form=document.getElementById("settingsForm");
+    if(!form){
+      alert("Kaydedilemedi.");
+      return;
+    }
+
+    try{
+      let next = (typeof getSettings === "function") ? {...getSettings()} : {};
+
+      for(const field of fields){
+        const el=form.querySelector(`[name="${field}"]`);
+        if(el) next[field] = el.value || "";
       }
-    };
-  }
 
-  const originalRestoreSettingsFields = window.restoreSettingsFields;
-  if(typeof originalRestoreSettingsFields === "function"){
-    window.restoreSettingsFields = async function(fieldsKey){
-      await originalRestoreSettingsFields(fieldsKey);
-      await sbSaveSiteSettingsFromLocal();
-    };
-  }
-})();
-
-document.addEventListener("DOMContentLoaded", function(){
-  setTimeout(async function(){
-    const loaded = await sbLoadSiteSettingsToLocal();
-    if(!loaded){
-      // İlk kurulumda local ayarları Supabase'e gönder
-      await sbSaveSiteSettingsFromLocal();
-    }
-  }, 250);
-});
-
-
-// --- Supabase shared packages sync ---
-async function sbLoadPackagesToLocal(){
-  try{
-    if(!supabaseClient) return false;
-    const { data, error } = await supabaseClient
-      .from("site_settings")
-      .select("id,data,updated_at")
-      .eq("id", 1)
-      .maybeSingle();
-    if(error){
-      console.warn("packages load warning:", error);
-      return false;
-    }
-    const remotePackages = data?.data?.packages;
-    if(Array.isArray(remotePackages)){
-      savePackages(remotePackages);
-      try{ renderPackagesAdminEnhanced(); }catch(e){}
-      try{ fillOrderFormOptions(); }catch(e){}
-      try{ renderPricingCards(); }catch(e){}
-      try{ renderPackageShowcaseCards(); }catch(e){}
-      try{ if(typeof sbBindPackagePurchase === 'function') sbBindPackagePurchase(); }catch(e){}
-      return true;
-    }
-    return false;
-  }catch(err){
-    console.warn("packages load error:", err);
-    return false;
-  }
-}
-
-async function sbSavePackagesFromLocal(){
-  try{
-    if(!supabaseClient) return false;
-    const { data: row, error: loadError } = await supabaseClient
-      .from("site_settings")
-      .select("id,data")
-      .eq("id", 1)
-      .maybeSingle();
-    if(loadError){
-      console.error("packages preload error:", loadError);
-      return false;
-    }
-    const payload = {
-      id: 1,
-      data: {
-        ...(row?.data || {}),
-        packages: getPackages()
-      },
-      updated_at: new Date().toISOString()
-    };
-    const { error } = await supabaseClient.from("site_settings").upsert([payload], { onConflict: "id" });
-    if(error){
-      console.error("packages save error:", error);
-      return false;
-    }
-    return true;
-  }catch(err){
-    console.error("packages save error:", err);
-    return false;
-  }
-}
-
-(function(){
-  const originalSavePackages = window.savePackages;
-  if(typeof originalSavePackages === 'function'){
-    window.savePackages = function(v){
-      originalSavePackages(v);
-      sbSavePackagesFromLocal();
-    };
-  }
-})();
-
-document.addEventListener("DOMContentLoaded", function(){
-  setTimeout(async function(){
-    await sbLoadPackagesToLocal();
-    try{ if(typeof sbBindPackagePurchase === 'function') sbBindPackagePurchase(); }catch(e){ console.warn(e); }
-  }, 300);
-});
-
-
-/* ===== Supabase orders/messages purchase fix ===== */
-async function sbGetCurrentProfile(){
-  if(!supabaseClient) return null;
-  const auth = await sbGetCurrentAuthUser();
-  if(!auth || !auth.id) return null;
-  let profile = await sbGetProfileByUserId(auth.id);
-  if(profile) return profile;
-  if(auth.email){
-    profile = await sbGetProfileByEmail(auth.email);
-    if(profile) return profile;
-  }
-  return null;
-}
-
-async function sbGetProfileBalance(profile){
-  if(!profile) return 0;
-  const { data, error } = await supabaseClient.from('profiles').select('balance').eq('id', profile.id).maybeSingle();
-  if(error){ console.error(error); }
-  return Number(data?.balance || profile.balance || 0);
-}
-
-async function sbRenderCustomerOrders(){
-  const tbody=document.getElementById('customerOrdersTableBody');
-  const mountFallback=document.getElementById('customerOrders');
-  const s=getSession();
-  if(!supabaseClient || !s) return;
-  const profile = await sbGetCurrentProfile();
-  if(!profile){
-    if(tbody) tbody.innerHTML='<tr><td colspan="5">Kullanıcı bulunamadı.</td></tr>';
-    if(mountFallback) mountFallback.innerHTML='<div class="status-note">Kullanıcı bulunamadı.</div>';
-    return;
-  }
-  const { data, error } = await supabaseClient.from('orders').select('*').eq('user_id', profile.id).order('created_at', { ascending:false });
-  if(error){ console.error(error); if(tbody) tbody.innerHTML='<tr><td colspan="5">Siparişler yüklenemedi.</td></tr>'; return; }
-  const orders = data || [];
-  if(tbody){
-    if(!orders.length){ tbody.innerHTML='<tr><td colspan="5">Henüz sipariş yok.</td></tr>'; }
-    else {
-      tbody.innerHTML = orders.map(order=>`<tr><td>${order.package_name || '-'}</td><td>${fmtMoney(order.amount || 0)}</td><td><span class="badge ${order.status==="completed"?"ok":order.status==="pending"?"warn":"off"}">${order.status === 'completed' ? 'Tamamlandı' : order.status === 'pending' ? 'Beklemede' : order.status === 'rejected' ? 'Reddedildi' : (order.status || '-')}</span></td><td>${order.stage || '-'}</td><td>${order.site_url ? `<a href="${order.site_url}" target="_blank" rel="noopener">Site Linki</a>` : '-'}</td><td>${order.date || '-'}</td></tr>`).join('');
-    }
-  }
-}
-
-async function sbRenderCustomerOrderTracking(){
-  const mount=document.getElementById('orderTracking');
-  const s=getSession();
-  if(!mount || !s || !supabaseClient) return;
-  const profile = await sbGetCurrentProfile();
-  if(!profile){ mount.innerHTML='<div class="status-note">Kullanıcı bulunamadı.</div>'; return; }
-  const { data, error } = await supabaseClient.from('orders').select('*').eq('user_id', profile.id).order('created_at', { ascending:true });
-  if(error){ console.error(error); mount.innerHTML='<div class="status-note">Sipariş takibi yüklenemedi.</div>'; return; }
-  const orders = data || [];
-  if(!orders.length){ mount.innerHTML='<div class="status-note">Takip edilecek sipariş yok.</div>'; return; }
-  const latest = orders[orders.length-1];
-  const timeline = Array.isArray(latest.timeline) ? latest.timeline : [latest.stage || 'Sipariş alındı'];
-  mount.innerHTML = `<div class="preview-box"><strong>${latest.package_name || '-'}</strong><div class="small">Son durum: ${latest.stage || '-'}</div><div class="timeline">${timeline.map((t,i)=>`<div class="timeline-item ${i===timeline.length-1?'active':''}">${t}</div>`).join('')}</div></div>`;
-}
-
-async function sbBindPackagePurchase(){
-  const oldForm=document.getElementById('packageBuyForm');
-  if(!oldForm || !supabaseClient) return;
-  const form=oldForm.cloneNode(true);
-  oldForm.parentNode.replaceChild(form, oldForm);
-  const select=form.querySelector('select[name="packageId"]');
-  const refill=()=>{
-    const pkgs=getPackages().filter(p=>p.active!==false);
-    if(select){
-      select.innerHTML = pkgs.length ? pkgs.map(p=>`<option value="${p.id}">${p.name} - ${fmtMoney(p.price)}</option>`).join('') : '<option value="">Paket yok</option>';
-    }
-  };
-  refill();
-  form.onsubmit = async function(e){
-    e.preventDefault();
-    const msg=document.getElementById('buyPkgMsg');
-    const profile = await sbGetCurrentProfile();
-    if(!profile){ if(msg) showMessage(msg, 'Kullanıcı bulunamadı.', false); else alert('Kullanıcı bulunamadı.'); return false; }
-    const pkg=getPackages().find(p=>p.id===select?.value);
-    const siteUrl=((form.querySelector('[name="siteUrl"]')?.value)||'').trim();
-    if(!pkg){ if(msg) showMessage(msg, 'Paket seç.', false); else alert('Paket seç.'); return false; }
-    if(!siteUrl){ if(msg) showMessage(msg, 'Yorum alınacak site linkini yaz.', false); else alert('Yorum alınacak site linkini yaz.'); return false; }
-    const currentBalance = await sbGetProfileBalance(profile);
-    if(currentBalance < Number(pkg.price||0)){
-      if(msg) showMessage(msg, 'Yetersiz bakiye.', false); else alert('Yetersiz bakiye.');
-      return false;
-    }
-    const newBalance = currentBalance - Number(pkg.price||0);
-    const { error: balErr } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', profile.id);
-    if(balErr){ console.error(balErr); if(msg) showMessage(msg, 'Bakiye güncellenemedi.', false); return false; }
-    const payload = {
-      user_id: profile.id,
-      customer: profile.full_name || profile.email,
-      customer_email: profile.email,
-      package_id: pkg.id,
-      package_name: pkg.name,
-      amount: Number(pkg.price||0),
-      site_url: siteUrl,
-      status: 'pending',
-      stage: 'Sipariş alındı',
-      timeline: ['Sipariş alındı'],
-      date: currentDateTR()
-    };
-    const { error: orderErr } = await supabaseClient.from('orders').insert([payload]);
-    if(orderErr){ console.error(orderErr); if(msg) showMessage(msg, 'Sipariş kaydı oluşturulamadı. SQL dosyasını çalıştır.', false); return false; }
-    const s = getSession() || {};
-    setSession({ ...s, balance:newBalance, email: profile.email, name: profile.full_name || profile.email, role: normalizeAppRole(profile.role || 'customer'), isActive:true });
-    if(msg) showMessage(msg, 'Sipariş verildi. İstediğiniz yorum metnini WhatsApp üzerinden iletin.', true);
-    const waWrap = document.getElementById('packageOrderWhatsappWrap');
-    const waBtn = document.getElementById('packageOrderWhatsappBtn');
-    const note = document.getElementById('packageOrderNotice');
-    const waText = `Merhaba, ${profile.full_name || profile.email} olarak ${pkg.name} paketi için sipariş verdim. Site linkim: ${siteUrl}. Yazılmasını istediğim yorum metni: `;
-    if(waBtn) waBtn.href = `https://wa.me/4915124302375?text=${encodeURIComponent(waText)}`;
-    if(note) note.style.display = 'block';
-    if(waWrap) waWrap.style.display = 'flex';
-    await renderCustomerBalance();
-    await sbRenderCustomerOrders();
-    await sbRenderCustomerOrderTracking();
-    await sbRenderOrdersAdmin();
-    return false;
-  };
-}
-
-async function sbRenderOrdersAdmin(){
-  const tbody=document.getElementById('ordersTableBody');
-  if(!tbody || !supabaseClient) return;
-  const { data, error } = await supabaseClient.from('orders').select('*').order('created_at', { ascending:false });
-  if(error){ console.error(error); tbody.innerHTML='<tr><td colspan="6">Siparişler yüklenemedi.</td></tr>'; return; }
-  const orders = data || [];
-  if(!orders.length){ tbody.innerHTML='<tr><td colspan="6">Henüz sipariş yok.</td></tr>'; return; }
-  tbody.innerHTML = orders.map(order=>`<tr><td>${order.customer || '-'}</td><td>${order.package_name || '-'}</td><td>${fmtMoney(order.amount || 0)}</td><td><span class="badge ${order.status==="completed"?"ok":order.status==="pending"?"warn":"off"}">${order.status === 'completed' ? 'Tamamlandı' : order.status === 'pending' ? 'Beklemede' : order.status === 'rejected' ? 'Reddedildi' : (order.status || '-')}</span></td><td>${order.stage || '-'}</td><td>${order.site_url ? `<a href="${order.site_url}" target="_blank" rel="noopener">Site Linki</a>` : '-'}</td><td><div class="item-actions"><button class="small-btn gold" data-order-complete="${order.id}">Tamamla</button><button class="small-btn red" data-order-reject="${order.id}">Reddet</button></div></td></tr>`).join('');
-  tbody.querySelectorAll('[data-order-complete]').forEach(btn=>btn.onclick=async()=>{
-    const id=btn.getAttribute('data-order-complete');
-    const { error } = await supabaseClient.from('orders').update({ status:'completed', stage:'Tamamlandı', timeline:['Sipariş alındı','Tamamlandı'] }).eq('id', id);
-    if(error){ console.error(error); alert('Sipariş güncellenemedi.'); return; }
-    await sbRenderOrdersAdmin(); await sbRenderCustomerOrders(); await sbRenderCustomerOrderTracking();
-  });
-  tbody.querySelectorAll('[data-order-reject]').forEach(btn=>btn.onclick=async()=>{
-    const id=btn.getAttribute('data-order-reject');
-    const { data: order } = await supabaseClient.from('orders').select('*').eq('id', id).maybeSingle();
-    if(order){
-      const { data: profile } = await supabaseClient.from('profiles').select('balance').eq('id', order.user_id).maybeSingle();
-      const refund = Number(profile?.balance || 0) + Number(order.amount || 0);
-      await supabaseClient.from('profiles').update({ balance: refund }).eq('id', order.user_id);
-    }
-    const { error } = await supabaseClient.from('orders').update({ status:'rejected', stage:'Reddedildi', timeline:['Sipariş alındı','Reddedildi'] }).eq('id', id);
-    if(error){ console.error(error); alert('Sipariş güncellenemedi.'); return; }
-    await sbRenderOrdersAdmin(); await sbRenderCustomerOrders(); await sbRenderCustomerOrderTracking(); await renderUsersAdmin();
-  });
-}
-
-async function sbFetchMessagesForEmail(email){
-  const { data, error } = await supabaseClient.from('messages').select('*').eq('user_email', email).order('created_at', { ascending:true });
-  if(error){ console.error(error); return []; }
-  return data || [];
-}
-
-async function sbRenderCustomerChat(){
-  const s=getSession();
-  const mount=document.getElementById('customerChatMessages');
-  if(!s || !mount || !supabaseClient) return;
-  const msgs = await sbFetchMessagesForEmail(s.email);
-  if(!msgs.length){ mount.innerHTML='<div class="status-note">Henüz mesaj yok.</div>'; return; }
-  mount.innerHTML = msgs.map(m=>`<div class="chat-msg ${m.sender_role==='admin'?'admin':'user'}"><div class="chat-head"><strong>${m.sender_role==='admin' ? 'Admin Mesajı' : 'Senin Mesajın'}</strong><span class="small">${m.date || '-'}</span></div><div>${m.text || ''}</div></div>`).join('');
-  mount.scrollTop = mount.scrollHeight;
-}
-
-async function sbRenderChatThread(email,isAdmin=false){
-  const chatMount=document.getElementById(isAdmin ? 'chatMessages' : 'customerChatMessages');
-  if(!chatMount || !supabaseClient) return;
-  const msgs = await sbFetchMessagesForEmail(email);
-  if(!msgs.length){ chatMount.innerHTML='<div class="status-note">Henüz mesaj yok.</div>'; return; }
-  chatMount.innerHTML = msgs.map(m=>`<div class="chat-msg ${m.sender_role==='admin'?'admin':'user'}"><div class="chat-head"><strong>${m.sender_role==='admin' ? 'Admin Mesajı' : 'Kullanıcı Mesajı'}</strong><span class="small">${m.date || '-'}</span></div><div>${m.text || ''}</div></div>`).join('');
-  chatMount.scrollTop = chatMount.scrollHeight;
-}
-
-async function sbRenderAdminChats(){
-  const usersMount=document.getElementById('chatUsers');
-  const chatMount=document.getElementById('chatMessages');
-  const targetSelect=document.getElementById('adminChatTargetSelect');
-  const searchInput=document.getElementById('adminChatUserSearch');
-  if(!usersMount || !chatMount || !supabaseClient) return;
-  const { data: users, error:uErr } = await supabaseClient.from('profiles').select('email,full_name,role,is_deleted,is_banned').neq('role','admin').order('created_at', { ascending:false });
-  if(uErr){ console.error(uErr); usersMount.innerHTML='<div class="status-note">Kullanıcılar yüklenemedi.</div>'; return; }
-  const { data: msgs } = await supabaseClient.from('messages').select('user_email,text,created_at').order('created_at', { ascending:false });
-  const usersList = (users || [])
-    .filter(u=>!u.is_deleted)
-    .map(u=>({email:u.email,name:u.full_name || u.email,is_banned:!!u.is_banned}));
-  const seen = new Set(usersList.map(u=>u.email));
-  (msgs || []).forEach(m=>{ if(m.user_email && !seen.has(m.user_email)){ usersList.push({email:m.user_email,name:m.user_email,is_banned:false}); seen.add(m.user_email); } });
-  const renderSelect = (list)=>{
-    if(!targetSelect) return;
-    targetSelect.innerHTML = list.length ? list.map(u=>`<option value="${u.email}">${u.name} - ${u.email}${u.is_banned?' (Banlı)':''}</option>`).join('') : '<option value="">Kullanıcı yok</option>';
-  };
-  const renderList = async (list)=>{
-    if(!list.length){ usersMount.innerHTML='<div class="status-note">Henüz müşteri veya mesaj yok.</div>'; chatMount.innerHTML='<div class="status-note">Mesaj geçmişi burada görünecek.</div>'; renderSelect([]); return; }
-    renderSelect(list);
-    usersMount.innerHTML = list.map(u=>{ const last = (msgs || []).find(m=>m.user_email===u.email); return `<div class="item-row"><div><strong>${u.name}</strong><div class="small">${u.email}</div><div class="small">${last ? String(last.text || '').slice(0,40) : 'Mesaj yok'}</div></div><div class="item-actions"><button class="small-btn gold" data-open-chat="${u.email}">Aç</button></div></div>`; }).join('');
-    usersMount.querySelectorAll('[data-open-chat]').forEach(btn=>btn.onclick=async()=>{ const email=btn.getAttribute('data-open-chat'); if(targetSelect) targetSelect.value=email; await sbRenderChatThread(email,true); });
-    const fallback=(targetSelect && targetSelect.value) ? targetSelect.value : list[0].email;
-    if(targetSelect) targetSelect.value=fallback;
-    await sbRenderChatThread(fallback,true);
-  };
-  if(searchInput && !searchInput.dataset.bound){
-    searchInput.addEventListener('input', async ()=>{
-      const q=(searchInput.value||'').trim().toLowerCase();
-      const filtered = !q ? usersList : usersList.filter(u=>String(u.name||'').toLowerCase().includes(q) || String(u.email||'').toLowerCase().includes(q));
-      await renderList(filtered);
-    });
-    searchInput.dataset.bound='1';
-  }
-  await renderList(usersList);
-}
-
-function sbBindCustomerChatForm(){
-  const form=document.getElementById('customerChatForm');
-  if(!form || !supabaseClient) return;
-  form.onsubmit = async function(e){
-    e.preventDefault();
-    const s=getSession();
-    if(!s){ alert('Oturum bulunamadı.'); return false; }
-    const textarea=form.querySelector('textarea[name="text"]');
-    const text=(textarea?.value || '').trim();
-    if(!text) return false;
-    const payload={ user_email:s.email, sender_role:'user', sender_name:s.name || 'Kullanıcı', text:text, date:currentDateTR() };
-    const { error } = await supabaseClient.from('messages').insert([payload]);
-    if(error){ console.error(error); alert('Mesaj gönderilemedi. SQL dosyasını çalıştır.'); return false; }
-    if(textarea) textarea.value='';
-    await sbRenderCustomerChat();
-    await sbRenderAdminChats();
-    const ok=document.getElementById('customerChatStatus');
-    if(ok){ ok.textContent='Mesaj gönderildi.'; ok.className='msg ok'; }
-    return false;
-  };
-}
-
-function sbBindAdminChatForm(){
-  const form=document.getElementById('adminChatForm');
-  if(!form || !supabaseClient) return;
-  form.onsubmit = async function(e){
-    e.preventDefault();
-    const targetSelect=form.querySelector('select[name="targetSelect"]');
-    const textArea=form.querySelector('textarea[name="text"]');
-    const target=(targetSelect?.value || '').trim();
-    const text=(textArea?.value || '').trim();
-    if(!target){ alert('Önce kullanıcı seç ya da ara.'); return false; }
-    if(!text){ alert('Mesaj yaz.'); return false; }
-    const s=getSession();
-    if(!s){ alert('Oturum bulunamadı.'); return false; }
-    const payload={ user_email:target, sender_role:'admin', sender_name:s.name || 'Admin', text:text, date:currentDateTR() };
-    const { error } = await supabaseClient.from('messages').insert([payload]);
-    if(error){ console.error(error); alert('Mesaj gönderilemedi. SQL dosyasını çalıştır.'); return false; }
-    if(textArea) textArea.value='';
-    await sbRenderAdminChats();
-    await sbRenderChatThread(target,true);
-    const ok=document.getElementById('adminChatStatus');
-    if(ok){ ok.textContent='Mesaj gönderildi.'; ok.className='msg ok'; }
-    return false;
-  };
-}
-
-document.addEventListener('DOMContentLoaded', function(){
-  setTimeout(async function(){
-    if(!supabaseClient) return;
-    if(document.body && document.body.getAttribute('data-page-id') === 'customer'){
-      sbBindPackagePurchase();
-      sbBindCustomerChatForm();
-      await sbRenderCustomerOrders();
-      await sbRenderCustomerOrderTracking();
-      await sbRenderCustomerChat();
-    }
-    if(document.body && document.body.getAttribute('data-page-id') === 'admin'){
-      sbBindAdminChatForm();
-      await sbRenderOrdersAdmin();
-      await sbRenderAdminChats();
-    }
-  }, 900);
-});
-/* ===== end orders/messages fix ===== */
-
-
-/* ===== v40 BALANCE + PROFILE REQUESTS + PUBLIC SESSION FIX ===== */
-async function sbRefreshPublicSession(){
-  if(!supabaseClient) return null;
-  try{
-    const s = await sbEnsureLocalSession();
-    document.querySelectorAll("[data-session-name]").forEach(el=>{ if(s) el.textContent=s.name; });
-    document.querySelectorAll("[data-session-email]").forEach(el=>{ if(s) el.textContent=s.email; });
-    document.querySelectorAll("[data-session-company]").forEach(el=>{ if(s) el.textContent=s.company||"Kurumsal Hesap"; });
-    return s;
-  }catch(e){ console.error(e); return null; }
-}
-
-async function sbDecoratePublicAuthLinks(){
-  const s = await sbRefreshPublicSession();
-  if(!s) return;
-  const target = s.role === 'admin' ? 'admin.html' : 'customer.html';
-  document.querySelectorAll('a[href="login.html"], a[href="register.html"]').forEach(a=>{
-    if(a.hasAttribute('data-logout')) return;
-    a.setAttribute('href', target);
-    const txt = (a.textContent || '').trim();
-    if(/giriş|başla|kayıt|hesabıma/i.test(txt)) a.textContent = s.role === 'admin' ? 'Admin Panelim' : 'Müşteri Panelim';
-  });
-}
-
-renderBalanceRequests = async function(){
-  const mount=document.getElementById("requestList");
-  if(!mount || !supabaseClient) return;
-  const { data, error } = await supabaseClient.from("balance_requests").select("*").order("created_at", { ascending: false });
-  if(error){ console.error(error); mount.innerHTML='<div class="status-note">Bakiye talepleri yüklenemedi.</div>'; return; }
-  if(!data || !data.length){ mount.innerHTML='<div class="status-note">Henüz bakiye talebi yok.</div>'; return; }
-  mount.innerHTML = data.map(req=>`
-    <div class="item-row">
-      <div>
-        <strong>${req.full_name || 'Kullanıcı'}</strong>
-        <div class="small">${req.email || '-'} • ${fmtMoney(req.amount)} • ${req.note || '-'}</div>
-        <div class="small">Durum: ${req.status === 'pending' ? 'Bekliyor' : req.status === 'approved' ? 'Onaylandı' : 'Reddedildi'}</div>
-      </div>
-      <div class="item-actions">
-        ${req.status === 'pending' ? `<button class="small-btn green" data-sb-approve="${req.id}">Onayla</button><button class="small-btn red" data-sb-reject="${req.id}">Reddet</button>` : ''}
-      </div>
-    </div>
-  `).join("");
-
-  mount.querySelectorAll("[data-sb-approve]").forEach(btn=>btn.addEventListener("click", async ()=>{
-    const id=btn.getAttribute("data-sb-approve");
-    const { data: req, error: reqErr } = await supabaseClient.from('balance_requests').select('*').eq('id', id).maybeSingle();
-    if(reqErr || !req){ console.error(reqErr); alert('Talep bulunamadı.'); return; }
-    if(req.status !== 'pending'){ renderBalanceRequests(); return; }
-    const targetProfile = req.user_id
-      ? await sbGetProfileByUserId(req.user_id)
-      : await sbGetProfileByEmail(req.email);
-    if(!targetProfile){ alert('Kullanıcı profili bulunamadı.'); return; }
-    const newBalance = Number(targetProfile.balance || 0) + Number(req.amount || 0);
-    const { error: balErr } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', targetProfile.id);
-    if(balErr){ console.error(balErr); alert('Bakiye güncellenemedi.'); return; }
-    const { error: upErr } = await supabaseClient.from('balance_requests').update({ status: 'approved' }).eq('id', id);
-    if(upErr){ console.error(upErr); alert('Talep onaylanamadı.'); return; }
-    try{ await sbRefreshPublicSession(); }catch(e){}
-    renderBalanceRequests(); renderAdminSummary(); renderUsersAdmin(); renderCustomerBalance(); renderCustomerRequests();
-  }));
-  mount.querySelectorAll("[data-sb-reject]").forEach(btn=>btn.addEventListener("click", async ()=>{
-    const id=btn.getAttribute("data-sb-reject");
-    const { error } = await supabaseClient.from("balance_requests").update({ status: "rejected" }).eq("id", id);
-    if(error){ console.error(error); alert("Reddedilemedi."); return; }
-    renderBalanceRequests(); renderAdminSummary(); renderCustomerRequests();
-  }));
-};
-
-window.bindProfileRequestForm = function(){
-  const oldForm = document.getElementById('profileRequestForm');
-  if(!oldForm || !supabaseClient) return;
-  const form = oldForm.cloneNode(true);
-  oldForm.parentNode.replaceChild(form, oldForm);
-  form.dataset.supabaseBound = '1';
-  form.addEventListener('submit', async function(e){
-    e.preventDefault();
-    const msg = document.getElementById('profileRequestMsg');
-    const profile = await sbGetCurrentProfile();
-    if(!profile){ if(msg) showMessage(msg, 'Profil bulunamadı. Tekrar giriş yapın.', false); return false; }
-    const newEmail = (form.querySelector('[name="newEmail"]')?.value || '').trim();
-    const newPhone = (form.querySelector('[name="newPhone"]')?.value || '').trim();
-    const newPassword = (form.querySelector('[name="newPassword"]')?.value || '').trim();
-    if(!newEmail && !newPhone && !newPassword){ if(msg) showMessage(msg, 'En az bir alan doldur.', false); return false; }
-    const payload = {
-      user_id: profile.id,
-      user_email: profile.email,
-      user_name: profile.full_name || profile.email,
-      new_email: newEmail || null,
-      new_phone: newPhone || null,
-      new_password: newPassword || null,
-      status: 'pending'
-    };
-    const { error } = await supabaseClient.from('profile_requests').insert([payload]);
-    if(error){ console.error(error); if(msg) showMessage(msg, 'Talep gönderilemedi.', false); return false; }
-    form.reset();
-    if(msg) showMessage(msg, 'Profil talebi admine gönderildi.');
-    return false;
-  });
-};
-
-window.renderProfileRequestsAdmin = async function(){
-  const mount = document.getElementById('profileRequestsList');
-  if(!mount || !supabaseClient) return;
-  const { data, error } = await supabaseClient.from('profile_requests').select('*').order('created_at', { ascending:false });
-  if(error){ console.error(error); mount.innerHTML='<div class="status-note">Profil talepleri yüklenemedi.</div>'; return; }
-  if(!data || !data.length){ mount.innerHTML='<div class="status-note">Profil değişiklik talebi yok.</div>'; return; }
-  mount.innerHTML = data.map(req => `
-    <div class="item-row">
-      <div>
-        <strong>${req.user_name || 'Kullanıcı'}</strong>
-        <div class="small">Hesap: ${req.user_email || '-'}</div>
-        <div class="small">Yeni e-posta: ${req.new_email || '-'} • Yeni telefon: ${req.new_phone || '-'}</div>
-        <div class="small">Şifre değişimi: ${req.new_password ? 'Var' : 'Yok'} • Durum: ${req.status || 'pending'}</div>
-      </div>
-      <div class="item-actions">
-        ${req.status === 'pending' ? `<button class="small-btn green" data-approve-profile="${req.id}">Onayla</button><button class="small-btn red" data-reject-profile="${req.id}">Reddet</button>` : ''}
-      </div>
-    </div>
-  `).join('');
-
-  mount.querySelectorAll('[data-approve-profile]').forEach(btn=>btn.addEventListener('click', async ()=>{
-    const id = btn.getAttribute('data-approve-profile');
-    const { data: req, error: reqErr } = await supabaseClient.from('profile_requests').select('*').eq('id', id).maybeSingle();
-    if(reqErr || !req){ console.error(reqErr); alert('Talep bulunamadı.'); return; }
-    const updates = {};
-    if(req.new_email) updates.email = req.new_email;
-    if(req.new_phone) updates.phone = req.new_phone;
-    if(req.new_email || req.new_phone){
-      const { error: profErr } = await supabaseClient.from('profiles').update(updates).eq('id', req.user_id);
-      if(profErr){ console.error(profErr); alert('Profil güncellenemedi.'); return; }
-    }
-    const { error: upErr } = await supabaseClient.from('profile_requests').update({ status:'approved' }).eq('id', id);
-    if(upErr){ console.error(upErr); alert('Talep güncellenemedi.'); return; }
-    renderProfileRequestsAdmin();
-  }));
-
-  mount.querySelectorAll('[data-reject-profile]').forEach(btn=>btn.addEventListener('click', async ()=>{
-    const id = btn.getAttribute('data-reject-profile');
-    const { error } = await supabaseClient.from('profile_requests').update({ status:'rejected' }).eq('id', id);
-    if(error){ console.error(error); alert('Talep reddedilemedi.'); return; }
-    renderProfileRequestsAdmin();
-  }));
-};
-
-document.addEventListener('DOMContentLoaded', function(){
-  setTimeout(async function(){
-    try{ await sbRefreshPublicSession(); }catch(e){}
-    try{ await sbDecoratePublicAuthLinks(); }catch(e){}
-    try{ window.bindProfileRequestForm(); }catch(e){ console.error(e); }
-    try{ window.renderProfileRequestsAdmin(); }catch(e){ console.error(e); }
-  }, 120);
-});
-/* ===== end v40 ===== */
-
-
-/* ===== Supabase active packages fix ===== */
-async function sbRenderActivePackages(){
-  const mount = document.getElementById('activePackagesList');
-  if(!mount || !supabaseClient) return;
-  const profile = await sbGetCurrentProfile();
-  if(!profile){
-    mount.innerHTML = '<div class="status-note">Henüz aktif paketin yok.</div>';
-    return;
-  }
-  const { data, error } = await supabaseClient
-    .from('orders')
-    .select('*')
-    .eq('user_id', profile.id)
-    .order('created_at', { ascending:false });
-  if(error){
-    console.error(error);
-    mount.innerHTML = '<div class="status-note">Aktif paketler yüklenemedi.</div>';
-    return;
-  }
-  const orders = (data || []).filter(o => String(o.status || '').toLowerCase() !== 'rejected');
-  if(!orders.length){
-    mount.innerHTML = '<div class="status-note">Henüz aktif paketin yok.</div>';
-    return;
-  }
-  mount.innerHTML = orders.map(order => `
-    <div class="item-row">
-      <div>
-        <strong>${order.package_name || order.packageName || '-'}</strong>
-        <div class="small">Tutar: ${fmtMoney(order.amount || order.price || 0)}</div>
-        <div class="small">Son durum: ${order.stage || (String(order.status||'').toLowerCase()==='completed' ? 'Tamamlandı' : String(order.status||'').toLowerCase()==='pending' ? 'Sipariş alındı' : String(order.status||'')) || '-'}</div>
-        <div class="small">Tarih: ${order.date || (order.created_at ? new Date(order.created_at).toLocaleDateString('tr-TR') : '-')}</div>
-        <div class="small">Site: ${order.site_url ? `<a href="${order.site_url}" target="_blank" rel="noopener">${order.site_url}</a>` : '-'}</div>
-      </div>
-      <div>
-        <span class="badge ${String(order.status||'').toLowerCase()==='completed'?'ok':String(order.status||'').toLowerCase()==='pending'?'warn':'off'}">${String(order.status||'').toLowerCase()==='completed' ? 'Tamamlandı' : String(order.status||'').toLowerCase()==='pending' ? 'Beklemede' : String(order.status||'').toLowerCase()==='rejected' ? 'Reddedildi' : (order.status || '-')}</span>
-      </div>
-    </div>
-  `).join('');
-}
-
-document.addEventListener('DOMContentLoaded', function(){
-  setTimeout(async function(){
-    try{ await sbRenderActivePackages(); }catch(e){ console.error(e); }
-    document.querySelectorAll('[data-tab-btn="activePackages"]').forEach(btn=>{
-      btn.addEventListener('click', async function(){
-        try{ await sbRenderActivePackages(); }catch(e){ console.error(e); }
-      });
-    });
-  }, 500);
-});
-/* ===== end Supabase active packages fix ===== */
-
-
-/* ===== FINAL ADMIN BAN/DELETE + BALANCE CONTROL + CHAT STYLE PATCH ===== */
-async function sbGetProfileByEmail(email){
-  if(!supabaseClient || !email) return null;
-  const { data } = await supabaseClient.from('profiles').select('*').eq('email', email).maybeSingle();
-  return data || null;
-}
-async function sbBlockedProfile(profile){
-  return !!(profile && (profile.is_banned === true || profile.is_deleted === true));
-}
-async function sbEnforceCurrentSessionActive(){
-  if(!supabaseClient) return true;
-  const { data } = await supabaseClient.auth.getUser();
-  const user = data?.user;
-  if(!user) return false;
-  const profile = await sbGetProfileByUserId(user.id);
-  if(!profile) return false;
-  if(await sbBlockedProfile(profile)){
-    alert(profile.is_deleted ? 'Bu hesap silinmiş.' : 'Bu hesap banlanmış.');
-    try{ await supabaseClient.auth.signOut(); }catch(e){}
-    localStorage.removeItem(SESSION_KEY);
-    window.location.href = 'login.html';
-    return false;
-  }
-  return true;
-}
-
-renderUsersAdmin = async function(){
-  const mount=document.getElementById('usersList');
-  if(!mount || !supabaseClient) return;
-  const { data, error } = await supabaseClient
-    .from('profiles')
-    .select('id,email,full_name,role,balance,is_banned,is_deleted,created_at')
-    .order('created_at', { ascending: false });
-  if(error){ console.error(error); mount.innerHTML='<div class="status-note">Kullanıcılar yüklenemedi.</div>'; return; }
-  if(!data || !data.length){ mount.innerHTML='<div class="status-note">Henüz kullanıcı yok.</div>'; return; }
-  mount.innerHTML = data.map(user=>{
-    const blocked = user.is_deleted ? 'Silinmiş' : user.is_banned ? 'Banlı' : 'Aktif';
-    const badge = user.is_deleted ? 'off' : user.is_banned ? 'warn' : 'ok';
-    const roleText = normalizeAppRole(user.role || 'customer') === 'admin' ? 'Admin' : 'Müşteri';
-    return `
-      <div class="item-row">
-        <div>
-          <strong>${user.full_name || 'Kullanıcı'}</strong>
-          <div class="small">${user.email} • ${roleText}</div>
-          <div class="small">Bakiye: ${fmtMoney(user.balance || 0)} • <span class="badge ${badge}">${blocked}</span></div>
-        </div>
-        <div class="item-actions">
-          ${roleText !== 'Admin' ? `
-            <button class="small-btn green" data-plus-balance="${user.id}">+ Bakiye</button>
-            <button class="small-btn red" data-minus-balance="${user.id}">- Bakiye</button>
-            <button class="small-btn gold" data-toggle-ban="${user.id}">${user.is_banned ? 'Ban Kaldır' : 'Banla'}</button>
-            <button class="small-btn red" data-soft-delete="${user.id}">Hesabı Sil</button>
-          ` : ''}
-        </div>
-      </div>`;
-  }).join('');
-
-  mount.querySelectorAll('[data-plus-balance]').forEach(btn=>btn.addEventListener('click', async ()=>{
-    const id=btn.getAttribute('data-plus-balance');
-    const amount=Number(prompt('Eklenecek bakiye tutarı'));
-    if(!amount || amount<=0) return;
-    const profile = await sbGetProfileByUserId(id);
-    if(!profile) return alert('Kullanıcı bulunamadı.');
-    const newBalance = Number(profile.balance || 0) + amount;
-    const { error } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', id);
-    if(error){ console.error(error); return alert('Bakiye eklenemedi.'); }
-    await renderUsersAdmin();
-    try{ await renderCustomerBalance(); }catch(e){}
-  }));
-
-  mount.querySelectorAll('[data-minus-balance]').forEach(btn=>btn.addEventListener('click', async ()=>{
-    const id=btn.getAttribute('data-minus-balance');
-    const amount=Number(prompt('Düşülecek bakiye tutarı'));
-    if(!amount || amount<=0) return;
-    const profile = await sbGetProfileByUserId(id);
-    if(!profile) return alert('Kullanıcı bulunamadı.');
-    const newBalance = Math.max(0, Number(profile.balance || 0) - amount);
-    const { error } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', id);
-    if(error){ console.error(error); return alert('Bakiye düşürülemedi.'); }
-    await renderUsersAdmin();
-    try{ await renderCustomerBalance(); }catch(e){}
-  }));
-
-  mount.querySelectorAll('[data-toggle-ban]').forEach(btn=>btn.addEventListener('click', async ()=>{
-    const id=btn.getAttribute('data-toggle-ban');
-    const profile = await sbGetProfileByUserId(id);
-    if(!profile) return alert('Kullanıcı bulunamadı.');
-    const next = !profile.is_banned;
-    const { error } = await supabaseClient.from('profiles').update({ is_banned: next }).eq('id', id);
-    if(error){ console.error(error); return alert('Ban işlemi yapılamadı.'); }
-    await renderUsersAdmin();
-    alert(next ? 'Kullanıcı banlandı.' : 'Kullanıcı banı kaldırıldı.');
-  }));
-
-  mount.querySelectorAll('[data-soft-delete]').forEach(btn=>btn.addEventListener('click', async ()=>{
-    const id=btn.getAttribute('data-soft-delete');
-    if(!confirm('Bu hesabı yumuşak silmek istiyor musun?')) return;
-    const { error } = await supabaseClient.from('profiles').update({ is_deleted:true, is_banned:true }).eq('id', id);
-    if(error){ console.error(error); return alert('Hesap silinemedi.'); }
-    await renderUsersAdmin();
-    alert('Hesap silindi.');
-  }));
-};
-
-renderBalanceRequests = async function(){
-  const mount=document.getElementById('requestList');
-  if(!mount || !supabaseClient) return;
-  const { data, error } = await supabaseClient.from('balance_requests').select('*').order('created_at', { ascending: false });
-  if(error){ console.error(error); mount.innerHTML='<div class="status-note">Bakiye talepleri yüklenemedi.</div>'; return; }
-  if(!data || !data.length){ mount.innerHTML='<div class="status-note">Henüz bakiye talebi yok.</div>'; return; }
-  mount.innerHTML = data.map(req=>`
-    <div class="item-row">
-      <div>
-        <strong>${req.full_name || 'Kullanıcı'}</strong>
-        <div class="small">${req.email || '-'} • ${fmtMoney(req.amount)} • ${req.note || '-'}</div>
-        <div class="small">Durum: ${req.status === 'pending' ? 'Bekliyor' : req.status === 'approved' ? 'Onaylandı' : 'Reddedildi'}</div>
-      </div>
-      <div class="item-actions">
-        ${req.status === 'pending' ? `<button class="small-btn green" data-sb-approve="${req.id}">Onayla</button><button class="small-btn red" data-sb-reject="${req.id}">Reddet</button>` : ''}
-        ${req.status === 'approved' ? `<button class="small-btn red" data-sb-refund="${req.id}">Geri Al</button>` : ''}
-      </div>
-    </div>
-  `).join('');
-
-  mount.querySelectorAll('[data-sb-approve]').forEach(btn=>btn.addEventListener('click', async ()=>{
-    const id=btn.getAttribute('data-sb-approve');
-    const { data:req, error:reqErr } = await supabaseClient.from('balance_requests').select('*').eq('id', id).maybeSingle();
-    if(reqErr || !req){ console.error(reqErr); return alert('Talep bulunamadı.'); }
-    const targetProfile = req.user_id ? await sbGetProfileByUserId(req.user_id) : await sbGetProfileByEmail(req.email);
-    if(!targetProfile) return alert('Kullanıcı profili bulunamadı.');
-    const newBalance = Number(targetProfile.balance || 0) + Number(req.amount || 0);
-    const { error: balErr } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', targetProfile.id);
-    if(balErr){ console.error(balErr); return alert('Bakiye güncellenemedi.'); }
-    const { error: upErr } = await supabaseClient.from('balance_requests').update({ status:'approved' }).eq('id', id);
-    if(upErr){ console.error(upErr); return alert('Talep onaylanamadı.'); }
-    await renderBalanceRequests(); await renderAdminSummary(); await renderUsersAdmin();
-    try{ await renderCustomerBalance(); await renderCustomerRequests(); }catch(e){}
-  }));
-
-  mount.querySelectorAll('[data-sb-reject]').forEach(btn=>btn.addEventListener('click', async ()=>{
-    const id=btn.getAttribute('data-sb-reject');
-    const { error } = await supabaseClient.from('balance_requests').update({ status:'rejected' }).eq('id', id);
-    if(error){ console.error(error); return alert('Reddedilemedi.'); }
-    await renderBalanceRequests(); await renderAdminSummary();
-  }));
-
-  mount.querySelectorAll('[data-sb-refund]').forEach(btn=>btn.addEventListener('click', async ()=>{
-    const id=btn.getAttribute('data-sb-refund');
-    const { data:req, error:reqErr } = await supabaseClient.from('balance_requests').select('*').eq('id', id).maybeSingle();
-    if(reqErr || !req) return alert('Talep bulunamadı.');
-    const targetProfile = req.user_id ? await sbGetProfileByUserId(req.user_id) : await sbGetProfileByEmail(req.email);
-    if(!targetProfile) return alert('Kullanıcı profili bulunamadı.');
-    const newBalance = Math.max(0, Number(targetProfile.balance || 0) - Number(req.amount || 0));
-    const { error: balErr } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', targetProfile.id);
-    if(balErr){ console.error(balErr); return alert('Bakiye geri alınamadı.'); }
-    const { error: upErr } = await supabaseClient.from('balance_requests').update({ status:'rejected' }).eq('id', id);
-    if(upErr){ console.error(upErr); return alert('Talep güncellenemedi.'); }
-    await renderBalanceRequests(); await renderAdminSummary(); await renderUsersAdmin();
-    try{ await renderCustomerBalance(); await renderCustomerRequests(); }catch(e){}
-  }));
-};
-
-// login override for ban/delete
-window.__sbFinalLoginPatch = true;
-document.addEventListener('DOMContentLoaded', function(){
-  setTimeout(function(){
-    const login=document.getElementById('loginForm');
-    if(!login || !supabaseClient) return;
-    const cloned=login.cloneNode(true);
-    login.parentNode.replaceChild(cloned, login);
-    cloned.addEventListener('submit', async function(e){
-      e.preventDefault();
-      const msg=document.getElementById('loginMsg');
-      const fd=Object.fromEntries(new FormData(cloned).entries());
-      const { data, error } = await supabaseClient.auth.signInWithPassword({
-        email: String(fd.email || '').trim(),
-        password: String(fd.password || '')
-      });
-      if(error){ console.error(error); showMessage(msg, error.message || 'Giriş başarısız.', false); return; }
-      const profile = await sbGetProfileByUserId(data?.user?.id);
-      if(!profile){ showMessage(msg, 'Profil bulunamadı.', false); return; }
-      if(profile.is_deleted || profile.is_banned){
-        try{ await supabaseClient.auth.signOut(); }catch(e){}
-        showMessage(msg, profile.is_deleted ? 'Bu hesap silinmiş.' : 'Bu hesap banlanmış.', false);
-        return;
+      for(const field of fields){
+        const pair = bgFieldMap[field];
+        if(!pair) continue;
+        const [fileField, progressId] = pair;
+        const input = form.querySelector(`[name="${fileField}"]`);
+        if(input && input.files && input.files[0]){
+          next[field] = await fileToCompressedDataUrl(input.files[0], progressId);
+          input.value = "";
+        }
       }
-      const balance = Number(profile.balance || 0);
-      setSession({
-        name: profile.full_name || data.user.email,
-        email: profile.email || data.user.email,
-        role: normalizeAppRole(profile.role || 'customer'),
-        company: profile.full_name || '',
-        balance: balance,
-        isActive: true
-      });
-      showMessage(msg, 'Giriş başarılı. Panel açılıyor...');
-      const appRole = normalizeAppRole(profile.role);
-      setTimeout(()=>{ window.location.href = (appRole === 'admin') ? 'admin.html' : 'customer.html'; }, 500);
-    });
-  }, 220);
 
-  setTimeout(async function(){
-    if(document.body && (document.body.getAttribute('data-page-id') === 'customer' || document.body.getAttribute('data-page-id') === 'admin')){
-      await sbEnforceCurrentSessionActive();
+      if(typeof saveSettings === "function") saveSettings(next);
+      if(typeof fillSettingsForm === "function") try{ fillSettingsForm(); }catch(e){}
+      if(typeof syncGlobalText === "function") try{ syncGlobalText(); }catch(e){ console.warn(e); }
+
+      if(typeof sbSaveSettingsSnapshot === "function"){
+        await sbSaveSettingsSnapshot(next);
+      }else if(typeof sbSaveSiteSettingsFromLocal === "function"){
+        await sbSaveSiteSettingsFromLocal();
+      }
+
+      const msg=document.getElementById("settingsMsg");
+      if(msg && typeof showMessage === "function") showMessage(msg, "Arka plan ayarları kaydedildi.");
+      if(feedbackId){
+        const fb=document.getElementById(feedbackId);
+        if(fb){
+          fb.textContent="Arka plan ayarları kaydedildi.";
+          fb.className="section-feedback show";
+          setTimeout(()=>{ fb.className="section-feedback"; }, 1800);
+        }
+      }
+      alert("Arka plan ayarları kaydedildi.");
+    }catch(err){
+      console.error("background save patch error:", err);
+      alert("Arka plan ayarları kaydedilemedi.");
     }
-  }, 350);
-});
+  };
 
-
-function setupCustomerPurchaseHints(){
-  const form = document.getElementById('packageBuyForm');
-  if(!form || document.getElementById('packageOrderNotice')) return;
-  const note = document.createElement('div');
-  note.id = 'packageOrderNotice';
-  note.className = 'small';
-  note.style.marginTop = '10px';
-  note.style.opacity = '0.88';
-  note.textContent = 'Sipariş verildikten sonra, yorumlarda ne yazılmasını istediğinizi WhatsApp üzerinden iletin.';
-  form.insertAdjacentElement('afterend', note);
-
-  const wrap = document.createElement('div');
-  wrap.id = 'packageOrderWhatsappWrap';
-  wrap.className = 'balance-action-stack';
-  wrap.style.marginTop = '10px';
-  wrap.style.display = 'none';
-  wrap.innerHTML = `
-    <a href="https://wa.me/4915124302375" target="_blank" rel="noopener noreferrer" class="btn btn-whatsapp btn-full" id="packageOrderWhatsappBtn">
-      <span class="wa-icon" aria-hidden="true">
-        <svg viewBox="0 0 32 32" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M19.11 17.34c-.27-.14-1.58-.78-1.82-.87-.24-.09-.42-.14-.6.14-.18.27-.69.87-.85 1.05-.16.18-.31.2-.58.07-.27-.14-1.12-.41-2.14-1.31-.79-.71-1.32-1.58-1.47-1.85-.16-.27-.02-.41.12-.55.12-.12.27-.31.4-.47.13-.16.18-.27.27-.45.09-.18.05-.34-.02-.47-.07-.14-.6-1.45-.82-1.98-.21-.51-.43-.44-.6-.45h-.51c-.18 0-.47.07-.72.34-.24.27-.94.92-.94 2.24 0 1.32.96 2.59 1.09 2.77.14.18 1.88 2.87 4.55 4.02.64.27 1.14.43 1.53.55.64.2 1.22.17 1.68.11.51-.08 1.58-.65 1.8-1.28.22-.63.22-1.18.16-1.28-.07-.11-.24-.18-.51-.31Z"/><path d="M16.03 3.2c-7.05 0-12.78 5.7-12.78 12.72 0 2.25.59 4.45 1.71 6.39L3.17 28.8l6.66-1.75a12.83 12.83 0 0 0 6.2 1.58h.01c7.05 0 12.77-5.7 12.77-12.72 0-3.4-1.33-6.6-3.75-9-2.41-2.4-5.62-3.71-9.03-3.71Zm0 23.09h-.01a10.6 10.6 0 0 1-5.39-1.47l-.39-.23-3.95 1.04 1.06-3.84-.25-.4a10.42 10.42 0 0 1-1.6-5.52c0-5.76 4.71-10.44 10.52-10.44 2.81 0 5.45 1.09 7.43 3.06a10.35 10.35 0 0 1 3.09 7.38c0 5.76-4.72 10.42-10.51 10.42Z"/></svg>
-      </span>
-      Sipariş Detayını WhatsApp'tan Gönder
-    </a>`;
-  note.insertAdjacentElement('afterend', wrap);
-}
-
-function setupBalanceInstruction(){
-  const form = document.getElementById('balanceRequestForm');
-  if(!form || document.getElementById('balanceInstructionNote')) return;
-  const note = document.createElement('div');
-  note.id = 'balanceInstructionNote';
-  note.className = 'small';
-  note.style.marginTop = '12px';
-  note.style.opacity = '0.84';
-  note.textContent = 'İlk önce bakiye talebinizi verin, sonra WhatsApp üzerinden ödeme bilgilerini alıp ödemenizi yapın ve dekontu iletin. Kontrol edilip onaylanacaktır.';
-  const stack = form.parentElement;
-  if(stack) stack.insertBefore(note, document.getElementById('customerRequests') || form.nextSibling);
-}
-
-document.addEventListener('DOMContentLoaded', function(){
-  setTimeout(function(){
-    setupCustomerPurchaseHints();
-    setupBalanceInstruction();
-  }, 150);
-});
+  document.addEventListener("DOMContentLoaded", function(){
+    setTimeout(function(){
+      try{ if(typeof sbLoadSiteSettingsToLocal === "function") sbLoadSiteSettingsToLocal(); }catch(e){}
+      try{ if(typeof syncGlobalText === "function") syncGlobalText(); }catch(e){}
+    }, 120);
+  });
+})();
+/* ===== end BG SETTINGS HARD FIX PATCH ===== */
