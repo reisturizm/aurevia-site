@@ -2571,253 +2571,80 @@ document.addEventListener("DOMContentLoaded", function(){
 });
 
 
-/* --- Supabase package purchase + messaging fix --- */
-async function sbEnsureAuxTablesNotice(){
-  return true;
-}
-
-async function sbGetCurrentProfile(){
-  const user = await sbGetUser();
-  if(!user) return null;
-  let profile = await sbGetProfileByUserId(user.id);
-  if(profile) return profile;
-  const { error } = await supabaseClient.from("profiles").upsert([{
-    id: user.id,
-    email: user.email || "",
-    full_name: user.user_metadata?.full_name || user.email || "",
-    role: "customer"
-  }], { onConflict: "id" });
-  if(error) {
-    console.error(error);
-    return null;
-  }
-  profile = await sbGetProfileByUserId(user.id);
-  return profile;
-}
-
-async function sbGetProfileBalance(profile){
-  if(!profile) return 0;
-  const { data, error } = await supabaseClient.from("profiles").select("balance").eq("id", profile.id).maybeSingle();
-  if(error){ console.error(error); return 0; }
-  return Number(data?.balance || 0);
-}
-
-async function sbRenderCustomerOrders(){
-  const tbody=document.getElementById("customerOrdersTableBody");
-  const s=getSession();
-  if(!tbody || !s || !supabaseClient) return;
-  const profile = await sbGetProfileByEmail(s.email);
-  if(!profile){ tbody.innerHTML='<tr><td colspan="5">Kullanıcı bulunamadı.</td></tr>'; return; }
-  const { data, error } = await supabaseClient.from("orders").select("*").eq("user_id", profile.id).order("created_at", { ascending:false });
-  if(error){ console.error(error); tbody.innerHTML='<tr><td colspan="5">Siparişler yüklenemedi.</td></tr>'; return; }
-  const orders = data || [];
-  if(!orders.length){ tbody.innerHTML='<tr><td colspan="5">Henüz siparişin yok.</td></tr>'; return; }
-  tbody.innerHTML = orders.map(order=>`<tr><td>${order.package_name || '-'}</td><td>${fmtMoney(order.amount || 0)}</td><td><span class="badge ${order.status==="completed"?"ok":order.status==="pending"?"warn":"off"}">${order.status === 'completed' ? 'Tamamlandı' : order.status === 'pending' ? 'Beklemede' : order.status === 'rejected' ? 'Reddedildi' : (order.status || '-')}</span></td><td>${order.stage || '-'}</td><td>${order.date || '-'}</td></tr>`).join("");
-}
-
-async function sbRenderCustomerOrderTracking(){
-  const mount=document.getElementById("orderTracking");
-  const s=getSession();
-  if(!mount || !s || !supabaseClient) return;
-  const profile = await sbGetProfileByEmail(s.email);
-  if(!profile){ mount.innerHTML='<div class="status-note">Kullanıcı bulunamadı.</div>'; return; }
-  const { data, error } = await supabaseClient.from("orders").select("*").eq("user_id", profile.id).order("created_at", { ascending:true });
-  if(error){ console.error(error); mount.innerHTML='<div class="status-note">Sipariş takibi yüklenemedi.</div>'; return; }
-  const orders = data || [];
-  if(!orders.length){ mount.innerHTML='<div class="status-note">Takip edilecek sipariş yok.</div>'; return; }
-  const latest = orders[orders.length-1];
-  const timeline = Array.isArray(latest.timeline) ? latest.timeline : [latest.stage || 'Sipariş alındı'];
-  mount.innerHTML = `<div class="preview-box"><strong>${latest.package_name || '-'}</strong><div class="small">Son durum: ${latest.stage || '-'}</div><div class="timeline">${timeline.map((t,i)=>`<div class="timeline-item ${i===timeline.length-1?'active':''}">${t}</div>`).join('')}</div></div>`;
-}
-
-async function sbBindPackagePurchase(){
-  const form=document.getElementById("packageBuyForm");
-  if(!form || !supabaseClient) return;
-  const select=form.querySelector('select[name="packageId"]');
-  const refill=()=>{
-    const pkgs=getPackages().filter(p=>p.active!==false);
-    if(select){
-      select.innerHTML = pkgs.length ? pkgs.map(p=>`<option value="${p.id}">${p.name} - ${fmtMoney(p.price)}</option>`).join('') : '<option value="">Paket yok</option>';
-    }
-  };
-  refill();
-  form.onsubmit = async function(e){
-    e.preventDefault();
-    const msg=document.getElementById("buyPkgMsg");
-    const profile = await sbGetCurrentProfile();
-    if(!profile){ if(msg) showMessage(msg, 'Kullanıcı bulunamadı.', false); else alert('Kullanıcı bulunamadı.'); return false; }
-    const pkg=getPackages().find(p=>p.id===select?.value);
-    if(!pkg){ if(msg) showMessage(msg, 'Paket seç.', false); else alert('Paket seç.'); return false; }
-    const currentBalance = await sbGetProfileBalance(profile);
-    if(currentBalance < Number(pkg.price||0)){
-      if(msg) showMessage(msg, 'Yetersiz bakiye.', false); else alert('Yetersiz bakiye.');
+// --- Supabase shared packages sync ---
+async function sbLoadPackagesToLocal(){
+  try{
+    if(!supabaseClient) return false;
+    const { data, error } = await supabaseClient
+      .from("site_settings")
+      .select("id,data,updated_at")
+      .eq("id", 1)
+      .maybeSingle();
+    if(error){
+      console.warn("packages load warning:", error);
       return false;
     }
-    const newBalance = currentBalance - Number(pkg.price||0);
-    const { error: balErr } = await supabaseClient.from('profiles').update({ balance:newBalance }).eq('id', profile.id);
-    if(balErr){ console.error(balErr); if(msg) showMessage(msg, 'Bakiye güncellenemedi.', false); return false; }
+    const remotePackages = data?.data?.packages;
+    if(Array.isArray(remotePackages)){
+      savePackages(remotePackages);
+      try{ renderPackagesAdminEnhanced(); }catch(e){}
+      try{ fillOrderFormOptions(); }catch(e){}
+      try{ renderPricingCards(); }catch(e){}
+      try{ renderPackageShowcaseCards(); }catch(e){}
+      try{ if(typeof sbBindPackagePurchase === 'function') sbBindPackagePurchase(); }catch(e){}
+      return true;
+    }
+    return false;
+  }catch(err){
+    console.warn("packages load error:", err);
+    return false;
+  }
+}
+
+async function sbSavePackagesFromLocal(){
+  try{
+    if(!supabaseClient) return false;
+    const { data: row, error: loadError } = await supabaseClient
+      .from("site_settings")
+      .select("id,data")
+      .eq("id", 1)
+      .maybeSingle();
+    if(loadError){
+      console.error("packages preload error:", loadError);
+      return false;
+    }
     const payload = {
-      user_id: profile.id,
-      customer: profile.full_name || profile.email,
-      customer_email: profile.email,
-      package_id: pkg.id,
-      package_name: pkg.name,
-      amount: Number(pkg.price||0),
-      status: 'pending',
-      stage: 'Sipariş alındı',
-      timeline: ['Sipariş alındı'],
-      date: currentDateTR()
+      id: 1,
+      data: {
+        ...(row?.data || {}),
+        packages: getPackages()
+      },
+      updated_at: new Date().toISOString()
     };
-    const { error: orderErr } = await supabaseClient.from('orders').insert([payload]);
-    if(orderErr){ console.error(orderErr); if(msg) showMessage(msg, 'Sipariş kaydı oluşturulamadı. Önce SQL dosyasını çalıştır.', false); return false; }
-    setSession({ ...getSession(), balance:newBalance });
-    if(msg) showMessage(msg, 'Paket satın alındı.');
-    await renderCustomerBalance();
-    await sbRenderCustomerOrders();
-    await sbRenderCustomerOrderTracking();
-    await sbRenderOrdersAdmin();
-    return false;
-  };
-}
-
-async function sbRenderOrdersAdmin(){
-  const tbody=document.getElementById('ordersTableBody');
-  if(!tbody || !supabaseClient) return;
-  const { data, error } = await supabaseClient.from('orders').select('*').order('created_at', { ascending:false });
-  if(error){ console.error(error); tbody.innerHTML='<tr><td colspan="6">Siparişler yüklenemedi.</td></tr>'; return; }
-  const orders = data || [];
-  if(!orders.length){ tbody.innerHTML='<tr><td colspan="6">Henüz sipariş yok.</td></tr>'; return; }
-  tbody.innerHTML = orders.map(order=>`<tr><td>${order.customer || '-'}</td><td>${order.package_name || '-'}</td><td>${fmtMoney(order.amount || 0)}</td><td><span class="badge ${order.status==="completed"?"ok":order.status==="pending"?"warn":"off"}">${order.status === 'completed' ? 'Tamamlandı' : order.status === 'pending' ? 'Beklemede' : order.status === 'rejected' ? 'Reddedildi' : (order.status || '-')}</span></td><td>${order.stage || '-'}</td><td><div class="item-actions"><button class="small-btn gold" data-order-complete="${order.id}">Tamamla</button><button class="small-btn red" data-order-reject="${order.id}">Reddet</button></div></td></tr>`).join('');
-  tbody.querySelectorAll('[data-order-complete]').forEach(btn=>btn.onclick=async()=>{
-    const id=btn.getAttribute('data-order-complete');
-    const { error } = await supabaseClient.from('orders').update({ status:'completed', stage:'Tamamlandı', timeline:['Sipariş alındı','Tamamlandı'] }).eq('id', id);
-    if(error){ console.error(error); alert('Sipariş güncellenemedi.'); return; }
-    await sbRenderOrdersAdmin(); await sbRenderCustomerOrders(); await sbRenderCustomerOrderTracking();
-  });
-  tbody.querySelectorAll('[data-order-reject]').forEach(btn=>btn.onclick=async()=>{
-    const id=btn.getAttribute('data-order-reject');
-    const { data: order } = await supabaseClient.from('orders').select('*').eq('id', id).maybeSingle();
-    if(order){
-      const { data: profile } = await supabaseClient.from('profiles').select('balance').eq('id', order.user_id).maybeSingle();
-      const refund = Number(profile?.balance || 0) + Number(order.amount || 0);
-      await supabaseClient.from('profiles').update({ balance: refund }).eq('id', order.user_id);
+    const { error } = await supabaseClient.from("site_settings").upsert([payload], { onConflict: "id" });
+    if(error){
+      console.error("packages save error:", error);
+      return false;
     }
-    const { error } = await supabaseClient.from('orders').update({ status:'rejected', stage:'Reddedildi', timeline:['Sipariş alındı','Reddedildi'] }).eq('id', id);
-    if(error){ console.error(error); alert('Sipariş güncellenemedi.'); return; }
-    await sbRenderOrdersAdmin(); await sbRenderCustomerOrders(); await sbRenderCustomerOrderTracking(); await renderUsersAdmin();
-  });
-}
-
-async function sbFetchMessagesForEmail(email){
-  const { data, error } = await supabaseClient.from('messages').select('*').eq('user_email', email).order('created_at', { ascending:true });
-  if(error){ console.error(error); return []; }
-  return data || [];
-}
-
-async function sbRenderCustomerChat(){
-  const s=getSession();
-  const mount=document.getElementById('customerChatMessages');
-  if(!s || !mount || !supabaseClient) return;
-  const msgs = await sbFetchMessagesForEmail(s.email);
-  if(!msgs.length){ mount.innerHTML='<div class="status-note">Henüz mesaj yok.</div>'; return; }
-  mount.innerHTML = msgs.map(m=>`<div class="chat-msg ${m.sender_role==='admin'?'admin':'user'}"><div class="chat-head"><strong>${m.sender_role==='admin' ? 'Admin Mesajı' : 'Senin Mesajın'}</strong><span class="small">${m.date || '-'}</span></div><div>${m.text || ''}</div></div>`).join('');
-  mount.scrollTop = mount.scrollHeight;
-}
-
-async function sbRenderChatThread(email,isAdmin=false){
-  const chatMount=document.getElementById(isAdmin ? 'chatMessages' : 'customerChatMessages');
-  if(!chatMount || !supabaseClient) return;
-  const msgs = await sbFetchMessagesForEmail(email);
-  if(!msgs.length){ chatMount.innerHTML='<div class="status-note">Henüz mesaj yok.</div>'; return; }
-  chatMount.innerHTML = msgs.map(m=>`<div class="chat-msg ${m.sender_role==='admin'?'admin':'user'}"><div class="chat-head"><strong>${m.sender_role==='admin' ? 'Admin Mesajı' : 'Kullanıcı Mesajı'}</strong><span class="small">${m.date || '-'}</span></div><div>${m.text || ''}</div></div>`).join('');
-  chatMount.scrollTop = chatMount.scrollHeight;
-}
-
-async function sbRenderAdminChats(){
-  const usersMount=document.getElementById('chatUsers');
-  const chatMount=document.getElementById('chatMessages');
-  const targetSelect=document.getElementById('adminChatTargetSelect');
-  if(!usersMount || !chatMount || !supabaseClient) return;
-  const { data: users, error:uErr } = await supabaseClient.from('profiles').select('email,full_name,role').neq('role','admin').order('created_at', { ascending:false });
-  if(uErr){ console.error(uErr); usersMount.innerHTML='<div class="status-note">Kullanıcılar yüklenemedi.</div>'; return; }
-  const { data: msgs } = await supabaseClient.from('messages').select('user_email,text,created_at').order('created_at', { ascending:false });
-  const usersList = (users || []).map(u=>({email:u.email,name:u.full_name || u.email}));
-  const seen = new Set(usersList.map(u=>u.email));
-  (msgs || []).forEach(m=>{ if(m.user_email && !seen.has(m.user_email)){ usersList.push({email:m.user_email,name:m.user_email}); seen.add(m.user_email); } });
-  if(targetSelect){ targetSelect.innerHTML = usersList.length ? usersList.map(u=>`<option value="${u.email}">${u.name} - ${u.email}</option>`).join('') : '<option value="">Kullanıcı yok</option>'; }
-  if(!usersList.length){ usersMount.innerHTML='<div class="status-note">Henüz müşteri veya mesaj yok.</div>'; chatMount.innerHTML='<div class="status-note">Mesaj geçmişi burada görünecek.</div>'; return; }
-  usersMount.innerHTML = usersList.map(u=>{
-    const last = (msgs || []).find(m=>m.user_email===u.email);
-    return `<div class="item-row"><div><strong>${u.name}</strong><div class="small">${u.email}</div><div class="small">${last ? String(last.text || '').slice(0,40) : 'Mesaj yok'}</div></div><div class="item-actions"><button class="small-btn gold" data-open-chat="${u.email}">Aç</button></div></div>`;
-  }).join('');
-  usersMount.querySelectorAll('[data-open-chat]').forEach(btn=>btn.onclick=async()=>{ const email=btn.getAttribute('data-open-chat'); if(targetSelect) targetSelect.value=email; await sbRenderChatThread(email,true); });
-  const fallback=(targetSelect && targetSelect.value) ? targetSelect.value : usersList[0].email;
-  if(targetSelect) targetSelect.value=fallback;
-  await sbRenderChatThread(fallback,true);
-}
-
-function sbBindCustomerChatForm(){
-  const form=document.getElementById('customerChatForm');
-  if(!form || !supabaseClient) return;
-  form.onsubmit = async function(e){
-    e.preventDefault();
-    const s=getSession();
-    if(!s){ alert('Oturum bulunamadı.'); return false; }
-    const textarea=form.querySelector('textarea[name="text"]');
-    const text=(textarea?.value || '').trim();
-    if(!text) return false;
-    const payload={ user_email:s.email, sender_role:'user', sender_name:s.name || 'Kullanıcı', text:text, date:currentDateTR() };
-    const { error } = await supabaseClient.from('messages').insert([payload]);
-    if(error){ console.error(error); alert('Mesaj gönderilemedi. Önce SQL dosyasını çalıştır.'); return false; }
-    if(textarea) textarea.value='';
-    await sbRenderCustomerChat();
-    await sbRenderAdminChats();
-    const ok=document.getElementById('customerChatStatus');
-    if(ok){ ok.textContent='Mesaj gönderildi.'; ok.className='msg ok'; }
-    const btn=document.querySelector('[data-tab-btn="messages"]'); btn?.click();
+    return true;
+  }catch(err){
+    console.error("packages save error:", err);
     return false;
-  };
+  }
 }
 
-function sbBindAdminChatForm(){
-  const form=document.getElementById('adminChatForm');
-  if(!form || !supabaseClient) return;
-  form.onsubmit = async function(e){
-    e.preventDefault();
-    const targetSelect=form.querySelector('select[name="targetSelect"]');
-    const textArea=form.querySelector('textarea[name="text"]');
-    const target=(targetSelect?.value || '').trim();
-    const text=(textArea?.value || '').trim();
-    if(!target){ alert('Önce kullanıcı seç.'); return false; }
-    if(!text){ alert('Mesaj yaz.'); return false; }
-    const s=getSession();
-    if(!s){ alert('Oturum bulunamadı.'); return false; }
-    const payload={ user_email:target, sender_role:'admin', sender_name:s.name || 'Admin', text:text, date:currentDateTR() };
-    const { error } = await supabaseClient.from('messages').insert([payload]);
-    if(error){ console.error(error); alert('Mesaj gönderilemedi. Önce SQL dosyasını çalıştır.'); return false; }
-    if(textArea) textArea.value='';
-    await sbRenderAdminChats();
-    await sbRenderChatThread(target,true);
-    const ok=document.getElementById('adminChatStatus');
-    if(ok){ ok.textContent='Mesaj gönderildi.'; ok.className='msg ok'; }
-    return false;
-  };
-}
+(function(){
+  const originalSavePackages = window.savePackages;
+  if(typeof originalSavePackages === 'function'){
+    window.savePackages = function(v){
+      originalSavePackages(v);
+      sbSavePackagesFromLocal();
+    };
+  }
+})();
 
-document.addEventListener('DOMContentLoaded', function(){
+document.addEventListener("DOMContentLoaded", function(){
   setTimeout(async function(){
-    if(!supabaseClient) return;
-    if(document.body && document.body.getAttribute('data-page-id') === 'customer'){
-      sbBindPackagePurchase();
-      sbBindCustomerChatForm();
-      await sbRenderCustomerOrders();
-      await sbRenderCustomerOrderTracking();
-      await sbRenderCustomerChat();
-    }
-    if(document.body && document.body.getAttribute('data-page-id') === 'admin'){
-      sbBindAdminChatForm();
-      await sbRenderOrdersAdmin();
-      await sbRenderAdminChats();
-    }
-  }, 900);
+    await sbLoadPackagesToLocal();
+  }, 300);
 });
