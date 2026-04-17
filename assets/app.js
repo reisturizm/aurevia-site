@@ -3073,123 +3073,86 @@ document.addEventListener('DOMContentLoaded', function(){
 /* ===== end v40 ===== */
 
 
+/* ===== vHome KPI + robust settings sync ===== */
+let __siteSettingsSyncTimer = null;
+async function sbSaveSettingsSnapshot(snapshot){
+  try{
+    if(!supabaseClient) return false;
+    const payload = { id: 1, data: snapshot, updated_at: new Date().toISOString() };
+    const { error } = await supabaseClient.from("site_settings").upsert([payload], { onConflict: "id" });
+    if(error){ console.error("site_settings snapshot save error:", error); return false; }
+    return true;
+  }catch(err){
+    console.error("site_settings snapshot save error:", err);
+    return false;
+  }
+}
 
-/* ===== v41 chat ui + tab scroll fix ===== */
-(function(){
-  const oldSetActiveTab = window.setActiveTab || setActiveTab;
-  window.setActiveTab = function(scope, target){
+try{
+  const __originalSaveSettings = saveSettings;
+  saveSettings = function(v){
+    __originalSaveSettings(v);
+    clearTimeout(__siteSettingsSyncTimer);
+    __siteSettingsSyncTimer = setTimeout(function(){ sbSaveSettingsSnapshot(getSettings()); }, 250);
+  };
+  window.saveSettings = saveSettings;
+}catch(e){ console.warn('saveSettings override warning', e); }
+
+async function sbEnsureSettingsHydrated(){
+  try{
+    const loaded = await sbLoadSiteSettingsToLocal();
+    if(!loaded){ await sbSaveSettingsSnapshot(getSettings()); }
+    try{ syncGlobalText(); }catch(e){}
+    try{ fillSettingsForm(); }catch(e){}
+  }catch(err){ console.warn('sbEnsureSettingsHydrated warning', err); }
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  setTimeout(sbEnsureSettingsHydrated, 120);
+});
+
+async function homeAnimateActiveRequests(){
+  const countEl = document.getElementById('homeActiveRequestsCount');
+  const barEl = document.getElementById('homeActiveRequestsBar');
+  if(!countEl || !barEl) return;
+
+  let baseCount = Number(countEl.getAttribute('data-base') || countEl.textContent || 0) || 0;
+  let displayed = baseCount;
+  let phase = 0;
+
+  async function refreshBase(){
     try{
-      const buttons = document.querySelectorAll(`[data-tab-scope="${scope}"] [data-tab-btn]`);
-      const sections = document.querySelectorAll(`.${scope}-content [data-tab-section]`);
-      buttons.forEach(x=>x.classList.toggle("active", x.getAttribute("data-tab-btn")===target));
-      let activeSection = null;
-      sections.forEach(sec=>{
-        const isActive = sec.getAttribute("data-tab-section")===target;
-        sec.classList.toggle("active", isActive);
-        if(isActive) activeSection = sec;
-      });
-      const state=getTabState(); state[scope]=target; saveTabState(state);
-      if(activeSection){
-        setTimeout(()=>{ activeSection.scrollIntoView({behavior:"smooth", block:"start"}); }, 30);
+      if(!supabaseClient) return;
+      const { count, error } = await supabaseClient
+        .from('balance_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending');
+      if(!error && typeof count === 'number'){
+        baseCount = count;
+        countEl.setAttribute('data-base', String(baseCount));
       }
-    }catch(err){
-      console.error(err);
-      try{ oldSetActiveTab(scope, target); }catch(e){}
-    }
-  };
-  try{ setActiveTab = window.setActiveTab; }catch(e){}
-
-  function formatChatDate(value){
-    try{ return value ? new Date(value).toLocaleString('tr-TR') : ''; }
-    catch(e){ return value || ''; }
+    }catch(err){ console.warn('home active requests fetch warning', err); }
   }
 
-  function chatBubbleHtml(message, currentRole){
-    const senderRole = message.senderRole === 'admin' ? 'admin' : 'user';
-    const mine = senderRole === currentRole;
-    const label = senderRole === 'admin' ? 'Admin' : 'Kullanıcı';
-    return `
-      <div class="chat-row ${mine ? 'mine' : 'theirs'}">
-        <div class="chat-bubble ${senderRole}">
-          <div class="chat-bubble-head">
-            <span>${label}</span>
-            <span>${formatChatDate(message.createdAt || message.date)}</span>
-          </div>
-          <div class="chat-bubble-text">${message.text || ''}</div>
-        </div>
-      </div>
-    `;
+  function frame(){
+    phase += 0.18;
+    const fluctuation = Math.round(Math.sin(phase) * 2 + Math.cos(phase * 0.55) * 1);
+    const target = Math.max(0, baseCount + fluctuation);
+    displayed += (target - displayed) * 0.2;
+    const shown = Math.max(0, Math.round(displayed));
+    countEl.textContent = shown.toLocaleString('tr-TR');
+    const pct = Math.max(12, Math.min(96, 24 + shown * 0.8));
+    barEl.style.width = pct + '%';
   }
 
-  window.renderCustomerChat = function(){
-    const s=getSession();
-    const mount=document.getElementById("customerChatMessages");
-    if(!s || !mount) return;
-    const msgs=getChats().filter(c=>c.userEmail===s.email).slice().sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0));
-    if(!msgs.length){ mount.innerHTML='<div class="status-note">Henüz mesaj yok.</div>'; return; }
-    mount.innerHTML = msgs.map(m => chatBubbleHtml(m, 'user')).join('');
-    mount.scrollTop = mount.scrollHeight;
-  };
+  await refreshBase();
+  frame();
+  setInterval(frame, 180);
+  setInterval(refreshBase, 15000);
+}
 
-  window.renderChatThread = function(email,isAdmin=false){
-    const mount=document.getElementById(isAdmin ? "chatMessages" : "customerChatMessages");
-    if(!mount) return;
-    const msgs=getChats().filter(c=>c.userEmail===email).slice().sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0));
-    if(!msgs.length){ mount.innerHTML='<div class="status-note">Henüz mesaj yok.</div>'; return; }
-    mount.innerHTML = msgs.map(m => chatBubbleHtml(m, isAdmin ? 'admin' : 'user')).join('');
-    mount.scrollTop = mount.scrollHeight;
-  };
-
-  window.renderAdminChats = function(){
-    const usersMount=document.getElementById("chatUsers");
-    const chatMount=document.getElementById("chatMessages");
-    const targetSelect=document.getElementById("adminChatTargetSelect");
-    if(!usersMount || !chatMount) return;
-
-    const users=(window.getAdminChatUsers ? window.getAdminChatUsers() : []).sort((a,b)=>(a.name||'').localeCompare(b.name||'', 'tr'));
-    const chats=getChats();
-
-    if(targetSelect){
-      targetSelect.innerHTML = users.length ? users.map(u=>`<option value="${u.email}">${u.name} - ${u.email}</option>`).join("") : '<option value="">Kullanıcı yok</option>';
-    }
-    if(!users.length){
-      usersMount.innerHTML='<div class="status-note">Henüz müşteri veya mesaj yok.</div>';
-      chatMount.innerHTML='<div class="status-note">Mesaj geçmişi burada görünecek.</div>';
-      return;
-    }
-    usersMount.innerHTML = users.map(u=>{
-      const userChats=chats.filter(c=>c.userEmail===u.email).sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
-      const unread=userChats.filter(c=>c.senderRole==="user").length;
-      const lastMsg=userChats[0];
-      return `<div class="item-row"><div><strong>${u.name}</strong><div class="small">${u.email}</div><div class="small">${lastMsg ? (lastMsg.text || '').slice(0,40) : 'Mesaj yok'}</div></div><div class="item-actions"><button class="small-btn gold" data-open-chat="${u.email}">Aç ${unread?`<span class="notify-pill">${unread}</span>`:""}</button></div></div>`;
-    }).join("");
-
-    usersMount.querySelectorAll("[data-open-chat]").forEach(btn=>btn.addEventListener("click",()=>{
-      const email=btn.getAttribute("data-open-chat");
-      if(targetSelect) targetSelect.value=email;
-      window.renderChatThread(email,true);
-      const formWrap = document.getElementById("adminChatForm");
-      if(formWrap) formWrap.scrollIntoView({behavior:"smooth", block:"nearest"});
-    }));
-
-    const fallback = (targetSelect && targetSelect.value) ? targetSelect.value : users[0].email;
-    if(targetSelect) targetSelect.value=fallback;
-    window.renderChatThread(fallback,true);
-  };
-
-  document.addEventListener('DOMContentLoaded', function(){
-    setTimeout(()=>{
-      document.querySelectorAll('[data-tab-scope] [data-tab-btn]').forEach(btn=>{
-        btn.addEventListener('click', function(){
-          const scopeRoot = btn.closest('[data-tab-scope]');
-          const scope = scopeRoot?.getAttribute('data-tab-scope');
-          const target = btn.getAttribute('data-tab-btn');
-          if(scope && target){ setTimeout(()=>window.setActiveTab(scope, target), 0); }
-        });
-      });
-      try{ window.renderCustomerChat && window.renderCustomerChat(); }catch(e){}
-      try{ window.renderAdminChats && window.renderAdminChats(); }catch(e){}
-    }, 80);
-  });
-})();
-/* ===== end v41 ===== */
+document.addEventListener('DOMContentLoaded', function(){
+  if(document.body && document.body.getAttribute('data-page-id') === 'home'){
+    setTimeout(homeAnimateActiveRequests, 250);
+  }
+});
