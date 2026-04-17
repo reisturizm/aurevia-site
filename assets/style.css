@@ -205,3 +205,33 @@ body{
 .btn-whatsapp:hover{border-color:rgba(37,211,102,.75);background:rgba(37,211,102,.12)}
 .wa-icon{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:0 0 20px}
 .wa-icon svg{width:20px;height:20px;display:block}
+
+
+
+/* ===== v41 chat ui ===== */
+.chat-list{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  max-height:420px;
+  overflow:auto;
+  padding:8px 4px 8px 0;
+}
+.chat-row{display:flex;width:100%;}
+.chat-row.mine{justify-content:flex-end;}
+.chat-row.theirs{justify-content:flex-start;}
+.chat-bubble{
+  max-width:min(78%, 520px);
+  padding:12px 14px;
+  border-radius:18px;
+  border:1px solid var(--line);
+  box-shadow:var(--shadow);
+}
+.chat-bubble.user{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.1);color:var(--text);}
+.chat-bubble.admin{background:rgba(212,175,55,.14);border-color:rgba(212,175,55,.35);color:#f7e7a8;}
+.chat-row.mine .chat-bubble{border-bottom-right-radius:6px;}
+.chat-row.theirs .chat-bubble{border-bottom-left-radius:6px;}
+.chat-bubble-head{display:flex;justify-content:space-between;gap:14px;align-items:center;font-size:12px;opacity:.88;margin-bottom:6px;}
+.chat-bubble-text{white-space:pre-wrap;word-break:break-word;line-height:1.45;}
+@media (max-width:760px){ .chat-bubble{max-width:88%;} }
+/* ===== end v41 ===== */

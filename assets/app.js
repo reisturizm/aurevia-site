@@ -3073,53 +3073,123 @@ document.addEventListener('DOMContentLoaded', function(){
 /* ===== end v40 ===== */
 
 
-/* ===== Supabase active packages fix ===== */
-async function sbRenderActivePackages(){
-  const mount = document.getElementById('activePackagesList');
-  if(!mount || !supabaseClient) return;
-  const profile = await sbGetCurrentProfile();
-  if(!profile){
-    mount.innerHTML = '<div class="status-note">Henüz aktif paketin yok.</div>';
-    return;
-  }
-  const { data, error } = await supabaseClient
-    .from('orders')
-    .select('*')
-    .eq('user_id', profile.id)
-    .order('created_at', { ascending:false });
-  if(error){
-    console.error(error);
-    mount.innerHTML = '<div class="status-note">Aktif paketler yüklenemedi.</div>';
-    return;
-  }
-  const orders = (data || []).filter(o => String(o.status || '').toLowerCase() !== 'rejected');
-  if(!orders.length){
-    mount.innerHTML = '<div class="status-note">Henüz aktif paketin yok.</div>';
-    return;
-  }
-  mount.innerHTML = orders.map(order => `
-    <div class="item-row">
-      <div>
-        <strong>${order.package_name || order.packageName || '-'}</strong>
-        <div class="small">Tutar: ${fmtMoney(order.amount || order.price || 0)}</div>
-        <div class="small">Son durum: ${order.stage || (String(order.status||'').toLowerCase()==='completed' ? 'Tamamlandı' : String(order.status||'').toLowerCase()==='pending' ? 'Sipariş alındı' : String(order.status||'')) || '-'}</div>
-        <div class="small">Tarih: ${order.date || (order.created_at ? new Date(order.created_at).toLocaleDateString('tr-TR') : '-')}</div>
-      </div>
-      <div>
-        <span class="badge ${String(order.status||'').toLowerCase()==='completed'?'ok':String(order.status||'').toLowerCase()==='pending'?'warn':'off'}">${String(order.status||'').toLowerCase()==='completed' ? 'Tamamlandı' : String(order.status||'').toLowerCase()==='pending' ? 'Beklemede' : String(order.status||'').toLowerCase()==='rejected' ? 'Reddedildi' : (order.status || '-')}</span>
-      </div>
-    </div>
-  `).join('');
-}
 
-document.addEventListener('DOMContentLoaded', function(){
-  setTimeout(async function(){
-    try{ await sbRenderActivePackages(); }catch(e){ console.error(e); }
-    document.querySelectorAll('[data-tab-btn="activePackages"]').forEach(btn=>{
-      btn.addEventListener('click', async function(){
-        try{ await sbRenderActivePackages(); }catch(e){ console.error(e); }
+/* ===== v41 chat ui + tab scroll fix ===== */
+(function(){
+  const oldSetActiveTab = window.setActiveTab || setActiveTab;
+  window.setActiveTab = function(scope, target){
+    try{
+      const buttons = document.querySelectorAll(`[data-tab-scope="${scope}"] [data-tab-btn]`);
+      const sections = document.querySelectorAll(`.${scope}-content [data-tab-section]`);
+      buttons.forEach(x=>x.classList.toggle("active", x.getAttribute("data-tab-btn")===target));
+      let activeSection = null;
+      sections.forEach(sec=>{
+        const isActive = sec.getAttribute("data-tab-section")===target;
+        sec.classList.toggle("active", isActive);
+        if(isActive) activeSection = sec;
       });
-    });
-  }, 500);
-});
-/* ===== end Supabase active packages fix ===== */
+      const state=getTabState(); state[scope]=target; saveTabState(state);
+      if(activeSection){
+        setTimeout(()=>{ activeSection.scrollIntoView({behavior:"smooth", block:"start"}); }, 30);
+      }
+    }catch(err){
+      console.error(err);
+      try{ oldSetActiveTab(scope, target); }catch(e){}
+    }
+  };
+  try{ setActiveTab = window.setActiveTab; }catch(e){}
+
+  function formatChatDate(value){
+    try{ return value ? new Date(value).toLocaleString('tr-TR') : ''; }
+    catch(e){ return value || ''; }
+  }
+
+  function chatBubbleHtml(message, currentRole){
+    const senderRole = message.senderRole === 'admin' ? 'admin' : 'user';
+    const mine = senderRole === currentRole;
+    const label = senderRole === 'admin' ? 'Admin' : 'Kullanıcı';
+    return `
+      <div class="chat-row ${mine ? 'mine' : 'theirs'}">
+        <div class="chat-bubble ${senderRole}">
+          <div class="chat-bubble-head">
+            <span>${label}</span>
+            <span>${formatChatDate(message.createdAt || message.date)}</span>
+          </div>
+          <div class="chat-bubble-text">${message.text || ''}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  window.renderCustomerChat = function(){
+    const s=getSession();
+    const mount=document.getElementById("customerChatMessages");
+    if(!s || !mount) return;
+    const msgs=getChats().filter(c=>c.userEmail===s.email).slice().sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0));
+    if(!msgs.length){ mount.innerHTML='<div class="status-note">Henüz mesaj yok.</div>'; return; }
+    mount.innerHTML = msgs.map(m => chatBubbleHtml(m, 'user')).join('');
+    mount.scrollTop = mount.scrollHeight;
+  };
+
+  window.renderChatThread = function(email,isAdmin=false){
+    const mount=document.getElementById(isAdmin ? "chatMessages" : "customerChatMessages");
+    if(!mount) return;
+    const msgs=getChats().filter(c=>c.userEmail===email).slice().sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0));
+    if(!msgs.length){ mount.innerHTML='<div class="status-note">Henüz mesaj yok.</div>'; return; }
+    mount.innerHTML = msgs.map(m => chatBubbleHtml(m, isAdmin ? 'admin' : 'user')).join('');
+    mount.scrollTop = mount.scrollHeight;
+  };
+
+  window.renderAdminChats = function(){
+    const usersMount=document.getElementById("chatUsers");
+    const chatMount=document.getElementById("chatMessages");
+    const targetSelect=document.getElementById("adminChatTargetSelect");
+    if(!usersMount || !chatMount) return;
+
+    const users=(window.getAdminChatUsers ? window.getAdminChatUsers() : []).sort((a,b)=>(a.name||'').localeCompare(b.name||'', 'tr'));
+    const chats=getChats();
+
+    if(targetSelect){
+      targetSelect.innerHTML = users.length ? users.map(u=>`<option value="${u.email}">${u.name} - ${u.email}</option>`).join("") : '<option value="">Kullanıcı yok</option>';
+    }
+    if(!users.length){
+      usersMount.innerHTML='<div class="status-note">Henüz müşteri veya mesaj yok.</div>';
+      chatMount.innerHTML='<div class="status-note">Mesaj geçmişi burada görünecek.</div>';
+      return;
+    }
+    usersMount.innerHTML = users.map(u=>{
+      const userChats=chats.filter(c=>c.userEmail===u.email).sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
+      const unread=userChats.filter(c=>c.senderRole==="user").length;
+      const lastMsg=userChats[0];
+      return `<div class="item-row"><div><strong>${u.name}</strong><div class="small">${u.email}</div><div class="small">${lastMsg ? (lastMsg.text || '').slice(0,40) : 'Mesaj yok'}</div></div><div class="item-actions"><button class="small-btn gold" data-open-chat="${u.email}">Aç ${unread?`<span class="notify-pill">${unread}</span>`:""}</button></div></div>`;
+    }).join("");
+
+    usersMount.querySelectorAll("[data-open-chat]").forEach(btn=>btn.addEventListener("click",()=>{
+      const email=btn.getAttribute("data-open-chat");
+      if(targetSelect) targetSelect.value=email;
+      window.renderChatThread(email,true);
+      const formWrap = document.getElementById("adminChatForm");
+      if(formWrap) formWrap.scrollIntoView({behavior:"smooth", block:"nearest"});
+    }));
+
+    const fallback = (targetSelect && targetSelect.value) ? targetSelect.value : users[0].email;
+    if(targetSelect) targetSelect.value=fallback;
+    window.renderChatThread(fallback,true);
+  };
+
+  document.addEventListener('DOMContentLoaded', function(){
+    setTimeout(()=>{
+      document.querySelectorAll('[data-tab-scope] [data-tab-btn]').forEach(btn=>{
+        btn.addEventListener('click', function(){
+          const scopeRoot = btn.closest('[data-tab-scope]');
+          const scope = scopeRoot?.getAttribute('data-tab-scope');
+          const target = btn.getAttribute('data-tab-btn');
+          if(scope && target){ setTimeout(()=>window.setActiveTab(scope, target), 0); }
+        });
+      });
+      try{ window.renderCustomerChat && window.renderCustomerChat(); }catch(e){}
+      try{ window.renderAdminChats && window.renderAdminChats(); }catch(e){}
+    }, 80);
+  });
+})();
+/* ===== end v41 ===== */
