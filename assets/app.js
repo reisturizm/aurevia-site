@@ -1036,6 +1036,7 @@ function renderCustomerOrders(){
   const tbody=document.getElementById("customerOrdersTableBody");
   const s=getSession();
   if(!tbody || !s) return;
+  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
   const key = s.company || s.name;
   const orders=getOrders().filter(o=>o.customerEmail===s.email || o.customer===key).slice().reverse();
   if(!orders.length){
@@ -1057,6 +1058,7 @@ function renderCustomerOrderTracking(){
   const mount=document.getElementById("orderTracking");
   const s=getSession();
   if(!mount || !s) return;
+  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
   const key = s.company || s.name;
   const orders=getOrders().filter(o=>o.customerEmail===s.email || o.customer===key);
   if(!orders.length){
@@ -1077,6 +1079,7 @@ function renderCustomerOrderTracking(){
 }
 
 function bindPackagePurchase(){
+  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
   const form=document.getElementById("packageBuyForm");
   if(!form || form.dataset.bound==="1") return;
   const select=form.querySelector('select[name="packageId"]');
@@ -1134,6 +1137,7 @@ function renderCustomerChat(){
   const s=getSession();
   const mount=document.getElementById("customerChatMessages");
   if(!s || !mount) return;
+  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
   const msgs=getChats().filter(c=>c.userEmail===s.email).slice().sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0));
   if(!msgs.length){
     mount.innerHTML='<div class="status-note">Henüz mesaj yok.</div>';
@@ -1211,6 +1215,7 @@ function renderAdminChats(){
   const chatMount=document.getElementById("chatMessages");
   const targetSelect=document.getElementById("adminChatTargetSelect");
   if(!usersMount || !chatMount) return;
+  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
 
   const users=getUsers().filter(u=>u.role==="customer");
   const chats=getChats();
@@ -1332,6 +1337,7 @@ function renderAdminChats(){
   const chatMount=document.getElementById("chatMessages");
   const targetSelect=document.getElementById("adminChatTargetSelect");
   if(!usersMount || !chatMount) return;
+  if(typeof supabaseClient !== "undefined" && supabaseClient) return;
 
   const users=getAdminChatUsers();
   const chats=getChats();
@@ -2716,8 +2722,10 @@ async function sbRenderCustomerOrderTracking(){
 }
 
 async function sbBindPackagePurchase(){
-  const form=document.getElementById('packageBuyForm');
-  if(!form || !supabaseClient) return;
+  const oldForm=document.getElementById('packageBuyForm');
+  if(!oldForm || !supabaseClient) return;
+  const form=oldForm.cloneNode(true);
+  oldForm.parentNode.replaceChild(form, oldForm);
   const select=form.querySelector('select[name="packageId"]');
   const refill=()=>{
     const pkgs=getPackages().filter(p=>p.active!==false);
